@@ -171,16 +171,19 @@ por una versión anterior siga abriéndose sin romper.
 | `src/words.js` | 980 palabras únicas del pozo |
 | `src/App.jsx` | Las tres pantallas (inicio, lobby, partida) y el estado local |
 | `src/Options.jsx` `src/Chat.jsx` `src/Rules.jsx` `src/Players.jsx` | Paneles de la interfaz |
-
-La partida tiene tres columnas: jugadores a la izquierda (cada nombre del color de su equipo),
-tablero al medio, reglas/chat/bitácora a la derecha. El reparto está en `index.css` con
-`grid-template-areas`: en pantallas medianas los jugadores suben a la columna derecha y en
-celular va todo apilado con el tablero primero.
 | `src/theme.js` | Colores y estilos compartidos. La estética es "expediente de espionaje" |
 | `src/storage.js` | Elige el backend según haya o no Firebase configurado |
 | `src/storage-firebase.js` | Transacciones y suscripciones contra Realtime Database |
 | `src/storage-local.js` | Backend de desarrollo en localStorage, solo entre pestañas |
 | `src/session.js` | Quién sos: `sessionStorage` por pestaña, `localStorage` por dispositivo |
+
+La partida tiene tres columnas: jugadores a la izquierda (cada nombre del color de su equipo),
+tablero al medio, reglas/chat/bitácora a la derecha. El reparto está en `index.css` con
+`grid-template-areas`: en pantallas medianas los jugadores suben a la columna derecha y en
+celular va todo apilado con el tablero primero.
+
+`docs/captura.png` es la imagen del README: una partida armada a mano con `game.js`, escrita en
+la base y abierta como el espía rojo. Si la interfaz cambia mucho, conviene rehacerla.
 
 Si `firebaseConfig.databaseURL` queda vacío, la app arranca en modo local automáticamente y
 avisa con un cartel. Sirve para desarrollar sin tocar la base real.
