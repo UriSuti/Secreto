@@ -63,8 +63,8 @@ export default function Chat({ room, me, onSend }) {
     <div style={{ ...panelStyle, padding: 12, marginBottom: 14 }}>
       <div className="cs-mono" style={{ fontSize: 11, color: COLORS.gold, marginBottom: 8 }}>chat</div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-        {tab('global', 'Global', false)}
-        {tab('team', 'Equipo', !canTeam)}
+        {tab('global', '🌐 Global', false)}
+        {tab('team', '🔒 Equipo (Privado)', !canTeam)}
       </div>
 
       <div

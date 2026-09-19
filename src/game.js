@@ -277,7 +277,7 @@ export function newRoom(hostId, hostName, { rand = Math.random, now = Date.now()
     phase: 'lobby',
     hostId,
     options: { ...DEFAULT_OPTIONS },
-    players: [{ id: hostId, name: cleanName(hostName), team: null, role: null }],
+    players: [{ id: hostId, name: cleanName(hostName), team: null, role: null, ready: false }],
     chat: [],
   };
   return { ...withNewBoard(base, rand), createdAt: now, updatedAt: now };
@@ -349,7 +349,7 @@ function reduce(room, a, me, { rand, now }) {
       if (!name || !a.playerId) return null;
       if (me) return me.name === name ? null : { ...room, players: room.players.map((p) => (p.id === me.id ? { ...p, name } : p)) };
       if (room.players.length >= MAX_PLAYERS) return null;
-      const players = [...room.players, { id: a.playerId, name, team: null, role: null }];
+      const players = [...room.players, { id: a.playerId, name, team: null, role: null, ready: false }];
       const hostAlive = room.players.some((p) => p.id === room.hostId);
       return { ...room, players, hostId: hostAlive ? room.hostId : a.playerId };
     }
@@ -372,7 +372,8 @@ function reduce(room, a, me, { rand, now }) {
       if (me.team === a.team && me.role === a.role) return null;
       const spymaster = a.role === 'spymaster' && spymasterOf(room, a.team);
       if (spymaster && spymaster.id !== me.id) return null;
-      return { ...room, players: room.players.map((p) => (p.id === me.id ? { ...p, team: a.team, role: a.role } : p)) };
+      // Al cambiar de equipo o rol, reseteamos su estado de listo
+      return { ...room, players: room.players.map((p) => (p.id === me.id ? { ...p, team: a.team, role: a.role, ready: false } : p)) };
     }
 
     // Solo el anfitrión toca los modificadores, y solo antes de empezar.
@@ -382,12 +383,35 @@ function reduce(room, a, me, { rand, now }) {
       const changed = Object.keys(options).filter((k) => options[k] !== room.options[k]);
       if (!changed.length) return null;
       const teams = teamsFor(options.teamCount);
-      const players = room.players.map((p) => (p.team && !teams.includes(p.team) ? { ...p, team: null, role: null } : p));
+      // Al cambiar opciones, se resetea el listo de todos para reconfirmar
+      const players = room.players.map((p) => {
+        const teamValid = p.team && teams.includes(p.team);
+        return { ...p, team: teamValid ? p.team : null, role: teamValid ? p.role : null, ready: false };
+      });
       const base = { ...room, options, players, teams };
       // Cambiar equipos o bombas cambia el tamaño del tablero: hay que rearmarlo.
       if (!changed.includes('teamCount') && !changed.includes('bombs')) return base;
       const next = generateBoard(options, rand);
       return { ...base, teams: next.teams, board: next.board, currentTeam: next.startingTeam, eliminated: [], log: [] };
+    }
+
+    case 'setReady':
+    case 'toggleReady': {
+      if (!me || room.phase !== 'lobby') return null;
+      if (!me.team || !me.role) return null;
+      const nextReady = a.ready !== undefined ? Boolean(a.ready) : !me.ready;
+      if (me.ready === nextReady) return null;
+      const players = room.players.map((p) => (p.id === me.id ? { ...p, ready: nextReady } : p));
+      const nextRoom = { ...room, players };
+
+      // Todos los jugadores de la sala deben tener equipo, rol asignado y estar listos
+      const allAssigned = players.length >= 2 && players.every((p) => p.team && p.role);
+      const allReady = allAssigned && players.every((p) => p.ready);
+      if (allReady && startProblems(nextRoom).length === 0) {
+        const next = { ...nextRoom, phase: 'playing', paused: false, pausedBy: null, chat: [] };
+        return { ...next, timer: startTimer(next, 'clue', now) };
+      }
+      return nextRoom;
     }
 
     case 'start': {
@@ -511,7 +535,11 @@ function reduce(room, a, me, { rand, now }) {
 
     case 'toLobby':
       if (!me || room.phase !== 'playing') return null;
-      return { ...withNewBoard(room, rand), phase: 'lobby' };
+      return {
+        ...withNewBoard(room, rand),
+        phase: 'lobby',
+        players: room.players.map((p) => ({ ...p, ready: false })),
+      };
 
     default:
       return null;
@@ -534,13 +562,16 @@ export function normalizeRoom(room) {
     ...room,
     options,
     teams,
+    players: Array.isArray(room.players)
+      ? room.players.map((p) => ({ ...p, ready: p.ready === true }))
+      : [],
     eliminated: Array.isArray(room.eliminated) ? room.eliminated : [],
     chat: Array.isArray(room.chat) ? room.chat : [],
     votes: room.votes && typeof room.votes === 'object' && !Array.isArray(room.votes) ? room.votes : {},
     voteReset: Number.isInteger(room.voteReset) ? room.voteReset : 0,
     paused: room.paused === true,
     timer: room.timer && typeof room.timer === 'object' ? room.timer : null,
-    hostId: room.hostId || room.players[0]?.id || null,
+    hostId: room.hostId || room.players?.[0]?.id || null,
   };
 }
 

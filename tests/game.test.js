@@ -611,3 +611,44 @@ test('si se va el anfitrión, el mando pasa a otro jugador', () => {
   assert.equal(room.hostId, 'b');
   assert.ok(applyAction(room, { type: 'setOptions', playerId: 'b', options: { bombs: 2 } }));
 });
+
+test('sistema de listo: cambiar de rol resetea listo y cuando todos ponen listo arranca la partida', () => {
+  let room = newRoom('rs', 'Rosa');
+  room = applyAction(room, { type: 'join', playerId: 'ro', name: 'Rodo' });
+  room = applyAction(room, { type: 'join', playerId: 'bs', name: 'Bea' });
+  room = applyAction(room, { type: 'join', playerId: 'bo', name: 'Beto' });
+
+  // Sin rol no pueden ponerse listos
+  assert.equal(applyAction(room, { type: 'toggleReady', playerId: 'rs' }), null);
+
+  room = applyAction(room, { type: 'pickRole', playerId: 'rs', team: 'red', role: 'spymaster' });
+  room = applyAction(room, { type: 'pickRole', playerId: 'ro', team: 'red', role: 'operative' });
+  room = applyAction(room, { type: 'pickRole', playerId: 'bs', team: 'blue', role: 'spymaster' });
+  room = applyAction(room, { type: 'pickRole', playerId: 'bo', team: 'blue', role: 'operative' });
+
+  // Todos arrancan no listos
+  assert.equal(room.players.filter((p) => p.ready).length, 0);
+
+  // Rosa se pone lista
+  room = applyAction(room, { type: 'toggleReady', playerId: 'rs' });
+  assert.equal(room.players.find((p) => p.id === 'rs').ready, true);
+  assert.equal(room.phase, 'lobby');
+
+  // Si Rosa cambia de rol, su listo se desactiva
+  room = applyAction(room, { type: 'pickRole', playerId: 'rs', team: 'red', role: 'operative' });
+  assert.equal(room.players.find((p) => p.id === 'rs').ready, false);
+
+  // Devolvemos el rol correcto
+  room = applyAction(room, { type: 'pickRole', playerId: 'rs', team: 'red', role: 'spymaster' });
+
+  // Van poniendo listo los demás
+  room = applyAction(room, { type: 'toggleReady', playerId: 'rs' });
+  room = applyAction(room, { type: 'toggleReady', playerId: 'ro' });
+  room = applyAction(room, { type: 'toggleReady', playerId: 'bs' });
+  assert.equal(room.phase, 'lobby');
+
+  // El último pone listo: arranca automáticamente
+  room = applyAction(room, { type: 'toggleReady', playerId: 'bo' });
+  assert.equal(room.phase, 'playing');
+});
+

@@ -54,6 +54,16 @@ export const TEAM_BUTTON = {
   green: [COLORS.green, COLORS.greenText],
 };
 
+// Fondos apagados por turno: suaves y oscuros para identificar el equipo sin saturar la vista
+export const TEAM_BG = {
+  red: 'radial-gradient(ellipse at 50% 0%, #2e1310 0%, #170d0c 55%, #100a09 100%)',
+  blue: 'radial-gradient(ellipse at 50% 0%, #0d2229 0%, #0a1619 55%, #070f12 100%)',
+  yellow: 'radial-gradient(ellipse at 50% 0%, #2b230d 0%, #19160a 55%, #111008 100%)',
+  green: 'radial-gradient(ellipse at 50% 0%, #122616 0%, #0c190f 55%, #08110a 100%)',
+  lobby: 'radial-gradient(ellipse at 50% 0%, #1d1914 0%, #161310 55%, #100e0b 100%)',
+  default: '#161310',
+};
+
 export const panelStyle = { background: COLORS.panel, border: `1px solid ${COLORS.panelBorder}`, borderRadius: 6 };
 export const labelStyle = { fontSize: 12, color: COLORS.gold, display: 'block', marginBottom: 6 };
 export const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: 4, border: `1px solid ${COLORS.panelBorder}`, background: COLORS.cream, color: COLORS.ink, fontSize: 16 };

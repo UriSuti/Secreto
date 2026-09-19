@@ -7,7 +7,7 @@ import {
 import { backend } from './storage.js';
 import { clearSession, loadName, loadSession, saveSession, savedPlayerId } from './session.js';
 import {
-  CARD_COLORS, COLORS, PICKED_CARD, TEAM_BUTTON, TEAM_TEXT,
+  CARD_COLORS, COLORS, PICKED_CARD, TEAM_BG, TEAM_BUTTON, TEAM_TEXT,
   ghostButton, inputStyle, labelStyle, panelStyle,
 } from './theme.js';
 import Options from './Options.jsx';
@@ -248,7 +248,7 @@ export default function App() {
   // ---------- HOME ----------
   if (!session) {
     return (
-      <div className="cs-root" style={{ padding: '48px 16px 32px', display: 'flex', justifyContent: 'center' }}>
+      <div className="cs-root" style={{ background: TEAM_BG.lobby, padding: '48px 16px 32px', display: 'flex', justifyContent: 'center' }}>
         <div style={{ maxWidth: 440, width: '100%' }}>
           {banners}
           <div style={{ textAlign: 'center', marginBottom: 36 }}>
@@ -311,7 +311,7 @@ export default function App() {
 
   if (!room) {
     return (
-      <div className="cs-root" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div className="cs-root" style={{ background: TEAM_BG.lobby, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
         <div style={{ textAlign: 'center' }}>
           <div className="cs-mono" style={{ color: COLORS.gold, marginBottom: 16 }}>cargando expediente...</div>
           <button type="button" className="cs-btn" onClick={handleLeave} style={ghostButton}>Cancelar</button>
@@ -327,11 +327,15 @@ export default function App() {
   if (room.phase === 'lobby') {
     const unassigned = room.players.filter((p) => !p.team);
     const problems = startProblems(room);
+    const totalPlayers = room.players.length;
+    const readyPlayers = room.players.filter((p) => p.ready).length;
+    const hasRole = Boolean(me?.team && me?.role);
+    const isReady = Boolean(me?.ready);
 
     const renderTeam = (team) => (
-      <div key={team} style={{ ...panelStyle, flex: '1 1 210px', padding: 16 }}>
-        <div className="cs-mono" style={{ color: TEAM_TEXT[team], fontSize: 14, marginBottom: 12 }}>
-          {TEAM_ICON[team]} Equipo {TEAM_LABEL[team]}
+      <div key={team} style={{ ...panelStyle, flex: '1 1 230px', padding: 18, borderTop: `3px solid ${TEAM_TEXT[team]}` }}>
+        <div className="cs-mono" style={{ color: TEAM_TEXT[team], fontSize: 14.5, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>{TEAM_ICON[team]}</span> <span>Equipo {TEAM_LABEL[team]}</span>
         </div>
         {['spymaster', 'operative'].map((role) => {
           const members = room.players.filter((p) => p.team === team && p.role === role);
@@ -339,11 +343,19 @@ export default function App() {
           const taken = role === 'spymaster' && members.length > 0 && !mine;
           const [bg, fg] = TEAM_BUTTON[team];
           return (
-            <div key={role} style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6 }}>{role === 'spymaster' ? 'Espía (líder)' : 'Agentes (miembros)'}</div>
+            <div key={role} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span>{role === 'spymaster' ? '👑' : '🕵️'}</span>
+                <span>{role === 'spymaster' ? 'Espía (líder)' : 'Agentes (miembros)'}</span>
+              </div>
               {members.map((p) => (
-                <div key={p.id} style={{ fontSize: 14, padding: '4px 0', color: COLORS.cream }}>
-                  {p.name}{p.id === session.playerId ? ' (vos)' : ''}{room.hostId === p.id ? ' ★' : ''}
+                <div key={p.id} style={{ fontSize: 13.5, padding: '4px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: COLORS.cream, fontWeight: p.id === session.playerId ? 700 : 500 }}>
+                    {p.name}{p.id === session.playerId ? ' (vos)' : ''}{room.hostId === p.id ? ' ★' : ''}
+                  </span>
+                  {p.ready
+                    ? <span className="cs-badge-ready">✓ Listo</span>
+                    : <span className="cs-badge-waiting">Esperando</span>}
                 </div>
               ))}
               <button
@@ -352,9 +364,9 @@ export default function App() {
                 data-pick={`${team}-${role}`}
                 disabled={!me || taken}
                 onClick={() => dispatch({ type: 'pickRole', team, role })}
-                style={{ marginTop: 4, fontSize: 12, padding: '6px 10px', borderRadius: 4, background: bg, color: fg, opacity: mine ? 1 : 0.6 }}
+                style={{ marginTop: 6, fontSize: 12, padding: '6px 12px', borderRadius: 4, background: bg, color: fg, opacity: mine ? 1 : 0.65, fontWeight: mine ? 700 : 400 }}
               >
-                {mine ? 'Elegido' : taken ? 'Ocupado' : 'Elegir'}
+                {mine ? '✓ Elegido' : taken ? 'Ocupado' : 'Elegir'}
               </button>
             </div>
           );
@@ -363,12 +375,12 @@ export default function App() {
     );
 
     return (
-      <div className="cs-root" style={{ padding: '32px 16px 32px' }}>
-        <div style={{ maxWidth: 820, margin: '0 auto' }}>
+      <div className="cs-root" style={{ background: TEAM_BG.lobby, padding: '32px 16px 32px' }}>
+        <div style={{ maxWidth: 840, margin: '0 auto' }}>
           {banners}
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div className="cs-mono" style={{ fontSize: 12, color: COLORS.gold }}>sala de espera</div>
-            <div className="cs-mono" style={{ fontSize: 42, letterSpacing: 8, color: COLORS.cream, margin: '6px 0' }}>{session.code}</div>
+          <div style={{ textAlign: 'center', marginBottom: 26 }}>
+            <div className="cs-mono" style={{ fontSize: 12, color: COLORS.gold, textTransform: 'uppercase', letterSpacing: 1 }}>sala de espera</div>
+            <div className="cs-mono" style={{ fontSize: 44, letterSpacing: 8, color: COLORS.cream, margin: '6px 0' }}>{session.code}</div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
               <button type="button" className="cs-btn" onClick={copyInvite} style={ghostButton}>
                 {copied ? '¡Link copiado!' : 'Copiar link de invitación'}
@@ -397,12 +409,42 @@ export default function App() {
             onChange={(patch) => dispatch({ type: 'setOptions', options: patch })}
           />
 
-          <div style={{ textAlign: 'center' }}>
-            <button type="button" className="cs-btn" disabled={!me || problems.length > 0} onClick={() => dispatch({ type: 'start' })} style={{ padding: '12px 32px', borderRadius: 4, background: COLORS.gold, color: COLORS.ink, fontWeight: 700, fontSize: 15 }}>
-              Iniciar partida
+          <div style={{ textAlign: 'center', marginTop: 16, marginBottom: 20 }}>
+            <button
+              type="button"
+              className="cs-btn"
+              disabled={!me || !hasRole}
+              onClick={() => dispatch({ type: 'toggleReady' })}
+              style={{
+                padding: isReady ? '13px 32px' : '14px 40px',
+                borderRadius: 6,
+                background: !hasRole ? COLORS.panelSoft : isReady ? COLORS.green : COLORS.gold,
+                color: !hasRole ? COLORS.dim : isReady ? COLORS.greenText : COLORS.ink,
+                fontWeight: 700,
+                fontSize: 16,
+                boxShadow: hasRole ? (isReady ? '0 4px 16px rgba(79,125,70,0.4)' : '0 4px 16px rgba(179,137,58,0.35)') : 'none',
+              }}
+            >
+              {!hasRole
+                ? 'Elegí equipo y rol para prepararte'
+                : isReady
+                  ? '✓ ¡Estás listo! (Tocar para cancelar)'
+                  : '¡Ponerte Listo!'}
             </button>
+
+            <div style={{ marginTop: 14 }}>
+              <div className="cs-mono" style={{ fontSize: 16, fontWeight: 700, color: readyPlayers === totalPlayers && totalPlayers >= 2 ? COLORS.greenLight : COLORS.cream }}>
+                ({readyPlayers}/{totalPlayers}) listos
+              </div>
+              <div style={{ fontSize: 12.5, color: COLORS.muted, marginTop: 4 }}>
+                {readyPlayers === totalPlayers && totalPlayers >= 2
+                  ? (problems.length > 0 ? 'Faltan roles requeridos para iniciar' : '¡Todos listos! Iniciando partida…')
+                  : 'Todos los jugadores deben poner listo para que inicie la partida.'}
+              </div>
+            </div>
+
             {problems.map((p) => (
-              <p key={p} style={{ color: COLORS.muted, fontSize: 12, margin: '8px 0 0' }}>{p}</p>
+              <p key={p} style={{ color: COLORS.error, fontSize: 12.5, margin: '8px 0 0' }}>⚠️ {p}</p>
             ))}
           </div>
           <Credits />
@@ -444,15 +486,19 @@ export default function App() {
 
   const headerButton = { ...ghostButton, padding: '7px 12px' };
 
+  const playingBg = room.winner
+    ? (TEAM_BG[room.winner] || TEAM_BG.default)
+    : (TEAM_BG[room.currentTeam] || TEAM_BG.default);
+
   return (
-    <div className="cs-root" style={{ padding: '20px 12px 32px' }}>
+    <div className="cs-root" style={{ background: playingBg, padding: '20px 12px 32px' }}>
       <div style={{ maxWidth: 1400, margin: '0 auto' }}>
         {banners}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12, padding: '8px 14px', background: 'rgba(31, 27, 21, 0.7)', borderRadius: 8, border: `1px solid ${COLORS.panelBorder}` }}>
           <div>
-            <div className="cs-mono" style={{ fontSize: 11, color: COLORS.gold }}>sala</div>
-            <div className="cs-mono" style={{ fontSize: 20, letterSpacing: 4, color: COLORS.cream }}>{session.code}</div>
+            <div className="cs-mono" style={{ fontSize: 10, color: COLORS.gold, textTransform: 'uppercase', letterSpacing: 1 }}>sala</div>
+            <div className="cs-mono" style={{ fontSize: 22, letterSpacing: 4, color: COLORS.cream }}>{session.code}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
             {room.teams.map((team) => {
@@ -460,15 +506,19 @@ export default function App() {
               const out = room.eliminated.includes(team);
               const active = room.currentTeam === team && !room.winner && !out;
               return (
-                <div key={team} style={{ textAlign: 'center', padding: '6px 14px', borderRadius: 4, background: bg, color: fg, opacity: out ? 0.3 : active ? 1 : 0.55, border: active ? `2px solid ${COLORS.gold}` : '2px solid transparent' }}>
+                <div key={team} style={{ textAlign: 'center', padding: '6px 14px', borderRadius: 6, background: bg, color: fg, opacity: out ? 0.3 : active ? 1 : 0.6, border: active ? `2px solid ${COLORS.gold}` : '2px solid transparent', boxShadow: active ? '0 0 12px rgba(179,137,58,0.45)' : 'none' }}>
                   <div style={{ fontSize: 20, fontWeight: 700, textDecoration: out ? 'line-through' : 'none' }}>{remaining(room.board, team)}</div>
                   <div className="cs-mono" style={{ fontSize: 10 }}>{out ? 'eliminado' : TEAM_LABEL[team].toLowerCase()}</div>
                 </div>
               );
             })}
           </div>
-          <div style={{ fontSize: 12, color: COLORS.muted, textAlign: 'right' }}>
-            {me ? `${me.name} · ${TEAM_LABEL[me.team] || 'sin equipo'} · ${me.role === 'spymaster' ? 'espía' : me.role === 'operative' ? 'agente' : 'mirando'}` : ''}
+          <div style={{ fontSize: 12.5, color: COLORS.cream, textAlign: 'right' }}>
+            {me ? (
+              <span style={{ padding: '4px 10px', borderRadius: 6, background: COLORS.panelSoft, border: `1px solid ${COLORS.panelBorder}` }}>
+                👤 <strong>{me.name}</strong> · <span style={{ color: TEAM_TEXT[me.team] || COLORS.muted }}>{TEAM_LABEL[me.team] || 'espectador'}</span> ({me.role === 'spymaster' ? '👑 espía' : me.role === 'operative' ? '🕵️ agente' : 'mirando'})
+              </span>
+            ) : ''}
           </div>
         </div>
 
@@ -498,34 +548,43 @@ export default function App() {
         )}
 
         {room.winner ? (
-          <div style={{ ...panelStyle, textAlign: 'center', borderColor: COLORS.gold, padding: 24, marginBottom: 14 }}>
-            <div className="cs-mono" style={{ fontSize: 12, color: COLORS.gold, marginBottom: 6 }}>misión finalizada</div>
-            <div className="cs-mono" style={{ fontSize: 24, color: TEAM_TEXT[room.winner] }}>
-              Gana el equipo {TEAM_LABEL[room.winner]}
+          <div style={{ ...panelStyle, textAlign: 'center', borderColor: COLORS.gold, padding: 24, marginBottom: 16, background: 'rgba(31, 27, 21, 0.85)', backdropFilter: 'blur(4px)' }}>
+            <div className="cs-mono" style={{ fontSize: 12, color: COLORS.gold, marginBottom: 6 }}>🏆 misión finalizada</div>
+            <div className="cs-mono" style={{ fontSize: 26, color: TEAM_TEXT[room.winner], fontWeight: 700 }}>
+              ¡Gana el equipo {TEAM_LABEL[room.winner]}!
             </div>
-            <div style={{ color: COLORS.muted, fontSize: 13, marginTop: 6 }}>
+            <div style={{ color: COLORS.muted, fontSize: 13.5, marginTop: 6 }}>
               {room.winReason === 'assassin'
                 ? `${room.eliminated.map((t) => TEAM_LABEL[t]).join(', ')} tocó una bomba.`
                 : 'Se descubrieron todas sus palabras.'}
             </div>
-            <button type="button" className="cs-btn" onClick={() => dispatch({ type: 'newRound' })} style={{ marginTop: 16, padding: '10px 24px', borderRadius: 4, background: COLORS.gold, color: COLORS.ink, fontWeight: 700 }}>
+            <button type="button" className="cs-btn" onClick={() => dispatch({ type: 'newRound' })} style={{ marginTop: 16, padding: '10px 26px', borderRadius: 6, background: COLORS.gold, color: COLORS.ink, fontWeight: 700, fontSize: 14 }}>
               Jugar otra ronda
             </button>
           </div>
         ) : (
-          <div style={{ textAlign: 'center', marginBottom: 14 }}>
-            <div className="cs-mono" style={{ fontSize: 14, color: TEAM_TEXT[room.currentTeam] }}>
-              Turno del equipo {TEAM_LABEL[room.currentTeam]}
+          <div style={{ ...panelStyle, padding: '14px 18px', textAlign: 'center', marginBottom: 16, borderLeft: `4px solid ${TEAM_TEXT[room.currentTeam]}`, background: 'rgba(31, 27, 21, 0.8)', backdropFilter: 'blur(4px)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 16 }}>{TEAM_ICON[room.currentTeam]}</span>
+              <span className="cs-mono" style={{ fontSize: 15, fontWeight: 700, color: TEAM_TEXT[room.currentTeam] }}>
+                Turno del equipo {TEAM_LABEL[room.currentTeam]}
+              </span>
             </div>
-            <div style={{ fontSize: 14, color: COLORS.muted, marginTop: 4 }} aria-live="polite">
+            <div style={{ fontSize: 13.5, color: COLORS.cream, marginTop: 5 }} aria-live="polite">
               {room.clue ? (
                 <>
-                  Pista: <strong style={{ color: COLORS.cream }}>{room.clue.word}</strong> · {room.clue.number}
-                  {' '}— {deferred
+                  Pista: <strong style={{ color: COLORS.gold, fontSize: 15, letterSpacing: 0.5 }}>{room.clue.word.toUpperCase()}</strong> · <strong>{room.clue.number}</strong> palabra{room.clue.number === 1 ? '' : 's'}
+                  {' '}— <span style={{ color: COLORS.muted }}>{deferred
                     ? `elegidas ${picks.length} de ${limit}`
-                    : `intento ${Math.min(room.clue.guesses + 1, limit)} de ${limit}`}
+                    : `intento ${Math.min(room.clue.guesses + 1, limit)} de ${limit}`}</span>
                 </>
-              ) : 'Esperando la pista del espía…'}
+              ) : (
+                <span style={{ color: COLORS.muted }}>
+                  {isMySpymaster
+                    ? 'Te toca dar la pista a tu equipo con una palabra y un número.'
+                    : `Esperando la pista del espía ${spymasterOf(room, room.currentTeam)?.name ? `(${spymasterOf(room, room.currentTeam)?.name})` : ''}…`}
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -578,7 +637,7 @@ export default function App() {
                         background: bg,
                         color: textColor,
                         border: mine || picked ? `2px solid ${COLORS.gold}` : `1px solid ${borderColor}`,
-                        borderRadius: 4,
+                        borderRadius: 6,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -588,17 +647,18 @@ export default function App() {
                         opacity: faded ? 0.4 : 1,
                         position: 'relative',
                         font: 'inherit',
+                        boxShadow: mine || picked ? '0 0 10px rgba(179,137,58,0.35)' : 'none',
                       }}
                     >
                       {keyView && !card.revealed && (
-                        <span aria-hidden="true" style={{ position: 'absolute', top: 3, right: 5, fontSize: 10, opacity: 0.85 }}>{TEAM_ICON[card.team]}</span>
+                        <span aria-hidden="true" style={{ position: 'absolute', top: 3, right: 5, fontSize: 11, opacity: 0.85 }}>{TEAM_ICON[card.team]}</span>
                       )}
                       {picked && (
-                        <span aria-hidden="true" style={{ position: 'absolute', top: 2, left: 5, fontSize: 12, fontWeight: 700, color: COLORS.gold }}>✓</span>
+                        <span aria-hidden="true" style={{ position: 'absolute', top: 2, left: 5, fontSize: 13, fontWeight: 700, color: COLORS.gold }}>✓</span>
                       )}
-                      <span style={{ fontSize: CARD_FONT[cols], fontWeight: 600, lineHeight: 1.15, textDecoration: faded ? 'line-through' : 'none' }}>{card.word}</span>
+                      <span style={{ fontSize: CARD_FONT[cols], fontWeight: 700, letterSpacing: '0.2px', lineHeight: 1.15, textDecoration: faded ? 'line-through' : 'none' }}>{card.word}</span>
                       {voters > 0 && need > 1 && !card.revealed && (
-                        <span className="cs-mono" style={{ position: 'absolute', bottom: 2, left: '50%', transform: 'translateX(-50%)', fontSize: 10, padding: '1px 6px', borderRadius: 8, background: COLORS.bg, color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
+                        <span className="cs-mono" style={{ position: 'absolute', bottom: 2, left: '50%', transform: 'translateX(-50%)', fontSize: 10, padding: '1px 7px', borderRadius: 10, background: 'rgba(22, 19, 16, 0.85)', color: COLORS.gold, border: `1px solid ${COLORS.gold}` }}>
                           {voters}/{need}
                         </span>
                       )}
