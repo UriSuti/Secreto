@@ -15,6 +15,11 @@ import Chat from './Chat.jsx';
 import Rules from './Rules.jsx';
 import Players from './Players.jsx';
 import MainMenu from './MainMenu.jsx';
+import CafeOTeApp from './cafeote/CafeOTeApp.jsx';
+
+function gameFromUrl() {
+  return new URLSearchParams(window.location.search).get('juego') || '';
+}
 
 function codeFromUrl() {
   const code = new URLSearchParams(window.location.search).get('sala') || '';
@@ -59,7 +64,11 @@ function Credits() {
 const CARD_FONT = { 5: 'clamp(10px, 2.8vw, 14px)', 6: 'clamp(9px, 2.2vw, 13px)', 7: 'clamp(8px, 1.9vw, 12px)' };
 
 export default function App() {
-  const [activeGame, setActiveGame] = useState(() => (codeFromUrl() || loadSession(codeFromUrl()) ? 'codigo-secreto' : 'menu'));
+  const [activeGame, setActiveGame] = useState(() => {
+    const juego = gameFromUrl();
+    if (juego === 'cafe-o-te') return 'cafe-o-te';
+    return codeFromUrl() || loadSession(codeFromUrl()) ? 'codigo-secreto' : 'menu';
+  });
   const [name, setName] = useState(loadName);
   const [joinCode, setJoinCode] = useState(codeFromUrl);
   const [session, setSession] = useState(() => loadSession(codeFromUrl()));
@@ -248,8 +257,13 @@ export default function App() {
   );
 
   // ---------- MENU PRINCIPAL ----------
-  if (!session && activeGame === 'menu') {
+  if (activeGame === 'menu') {
     return <MainMenu onSelectGame={(gameId) => setActiveGame(gameId)} />;
+  }
+
+  // ---------- CAFÉ O TÉ ----------
+  if (activeGame === 'cafe-o-te') {
+    return <CafeOTeApp onBackToMenu={() => setActiveGame('menu')} />;
   }
 
   // ---------- HOME DE CÓDIGO SECRETO ----------

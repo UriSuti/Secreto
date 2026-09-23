@@ -10,6 +10,14 @@ const GAMES = [
     badge: 'Disponible',
     available: true,
   },
+  {
+    id: 'cafe-o-te',
+    title: 'Café o Té',
+    icon: '☕',
+    description: 'Juego de adivinanza por eliminación y asociación binaria (2v2: Pensadores y Adivinadores).',
+    badge: 'Disponible',
+    available: true,
+  },
 ];
 
 export default function MainMenu({ onSelectGame }) {
