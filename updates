@@ -22,4 +22,8 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST - 0.2.2 = Modificación de texto en la descripción de Código Secreto en el menú de juegos
+0.2.2 = Modificación de texto en la descripción de Código Secreto en el menú de juegos
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST - 0.2.3 = Correccion del CLAUDE.md (el registro de versiones es 'updates', no 'updates.txt')
