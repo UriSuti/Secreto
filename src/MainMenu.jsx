@@ -7,7 +7,7 @@ const GAMES = [
     id: 'codigo-secreto',
     title: 'Código Secreto',
     icon: '🕵️',
-    description: 'Juego de palabras y espías para jugar online con amigos, cada uno desde su pantalla.',
+    description: 'Juego de palabras y espías para jugar online con amigos.',
     badge: 'Disponible',
     available: true,
   },

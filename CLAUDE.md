@@ -221,4 +221,4 @@ Notas sobre algunas:
   manejar la app desde un navegador automatizado. No los saques.
 
 ### Importante por cada nueva adicion al proyecto
-- El archivo 'updates.txt' lleva un registro de las actualizaciones, por cada cambio que hagas, quiero que lo agregues ahi, si es un cambio pequeño, a la version x.y.z sumale a Z+1. Si es un cambio mediano, a la version x.y.z, sumale Y+1 y establece el Z en 0. Si es un cambio grande, como una gran actualizacion, a la version x.y.z sumale a X+1, y establece ambas Y,Z en 0.
+- El archivo 'updates.txt' lleva un registro de las actualizaciones, por cada cambio que hagas, quiero que lo agregues ahi, si es un cambio pequeño, a la version x.y.z sumale a Z+1. Si es un cambio grande, a la version x.y.z, sumale Y+1 y establece el Z en 0. Si es un cambio gigantesco, como una gran actualizacion, a la version x.y.z sumale a X+1, y establece ambas Y,Z en 0.
