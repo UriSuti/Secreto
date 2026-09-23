@@ -4,7 +4,7 @@ import {
   CHAT_BUDGET, CHAT_MESSAGES, DEFAULT_OPTIONS, MAX_CHAT_TEXT, MAX_TEAM_CHAT, WORD_POOL,
   applyAction, boardSize, clueProblem, generateBoard, majorityFor, neutralCount, newRoom,
   normalizeOptions, numberProblem, pickedCards, remaining, serializeRoom, shuffle, startProblems, teamsFor,
-} from '../src/game.js';
+} from '../src/codigo-secreto/game.js';
 
 const ROSTER = {
   red: [['rs', 'Rosa', 'spymaster'], ['ro', 'Rodo', 'operative']],

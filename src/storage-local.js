@@ -1,5 +1,5 @@
 // Backend de desarrollo cuando Firebase no está configurado: salas en localStorage, sincronizadas entre pestañas del mismo navegador.
-import { ROOM_TTL_MS, makeCode, parseRoom, serializeRoom } from './game.js';
+import { ROOM_TTL_MS, makeCode, parseRoom, serializeRoom } from './codigo-secreto/game.js';
 
 const PREFIX = 'codigo-secreto:sala:';
 const listeners = new Map();

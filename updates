@@ -22,4 +22,8 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST - 0.2.2 = Modificación de texto en la descripción de Código Secreto en el menú de juegos
+0.2.2 = Modificación de texto en la descripción de Código Secreto en el menú de juegos
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST - 0.2.3 = Reorganización de estructura de carpetas (src/menu y src/codigo-secreto)

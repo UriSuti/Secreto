@@ -167,11 +167,13 @@ por una versión anterior siga abriéndose sin romper.
 
 | Archivo | Qué es |
 |---|---|
-| `src/game.js` | Reducer, reglas, validaciones, generación del tablero. El corazón |
-| `src/words.js` | 980 palabras únicas del pozo |
-| `src/App.jsx` | Las tres pantallas (inicio, lobby, partida) y el estado local |
-| `src/Options.jsx` `src/Chat.jsx` `src/Rules.jsx` `src/Players.jsx` | Paneles de la interfaz |
-| `src/theme.js` | Colores y estilos compartidos. La estética es "expediente de espionaje" |
+| `src/codigo-secreto/game.js` | Reducer, reglas, validaciones, generación del tablero de Código Secreto |
+| `src/codigo-secreto/words.js` | 980 palabras únicas del pozo |
+| `src/menu/MainMenu.jsx` `src/menu/Credits.jsx` | Menú principal de selección de juegos y créditos |
+| `src/cafeote/` | Componentes y lógica del juego Café o Té |
+| `src/App.jsx` | Pantalla principal, enrutador de juegos y estado local |
+| `src/codigo-secreto/Options.jsx` `Chat.jsx` `Rules.jsx` `Players.jsx` | Paneles de la interfaz de Código Secreto |
+| `src/theme.js` | Colores y estilos compartidos |
 | `src/storage.js` | Elige el backend según haya o no Firebase configurado |
 | `src/storage-firebase.js` | Transacciones y suscripciones contra Realtime Database |
 | `src/storage-local.js` | Backend de desarrollo en localStorage, solo entre pestañas |

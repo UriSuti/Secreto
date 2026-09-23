@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { backend } from '../storage.js';
 import { clearSession, loadName, loadSession, saveSession } from '../session.js';
 import { COLORS, panelStyle, inputStyle, ghostButton, labelStyle } from '../theme.js';
-import Credits from '../Credits.jsx';
+import Credits from '../menu/Credits.jsx';
 import { applyAction, cleanName, findPlayer, makeId, newRoom } from './game.js';
 import CafeOTeLobby from './CafeOTeLobby.jsx';
 import CafeOTeSecretWord from './CafeOTeSecretWord.jsx';

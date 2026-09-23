@@ -3,18 +3,18 @@ import {
   GRID_COLS, MAX_CLUE, MAX_NAME, TEAM_ICON, TEAM_LABEL,
   applyAction, cleanName, clueProblem, findPlayer, guessLimit, isHost, majorityFor, makeId,
   newRoom, numberProblem, operativesOf, pickedCards, remaining, spymasterOf, startProblems, timerLeft,
-} from './game.js';
+} from './codigo-secreto/game.js';
 import { backend } from './storage.js';
 import { clearSession, loadName, loadSession, saveSession, savedPlayerId } from './session.js';
 import {
   CARD_COLORS, COLORS, PICKED_CARD, TEAM_BG, TEAM_BUTTON, TEAM_TEXT,
   ghostButton, inputStyle, labelStyle, panelStyle,
 } from './theme.js';
-import Options from './Options.jsx';
-import Chat from './Chat.jsx';
-import Rules from './Rules.jsx';
-import Players from './Players.jsx';
-import MainMenu from './MainMenu.jsx';
+import Options from './codigo-secreto/Options.jsx';
+import Chat from './codigo-secreto/Chat.jsx';
+import Rules from './codigo-secreto/Rules.jsx';
+import Players from './codigo-secreto/Players.jsx';
+import MainMenu from './menu/MainMenu.jsx';
 import CafeOTeApp from './cafeote/CafeOTeApp.jsx';
 
 function gameFromUrl() {

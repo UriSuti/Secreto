@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase, onValue, ref, runTransaction } from 'firebase/database';
 import { firebaseConfig } from './firebaseConfig.js';
-import { ROOM_TTL_MS, makeCode, parseRoom, serializeRoom } from './game.js';
+import { ROOM_TTL_MS, makeCode, parseRoom, serializeRoom } from './codigo-secreto/game.js';
 
 let db = null;
 
