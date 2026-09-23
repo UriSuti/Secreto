@@ -59,3 +59,41 @@ export function subscribeConnection(onChange) {
   onChange(true);
   return () => {};
 }
+
+// ─── Funciones de alta frecuencia para Fútbol (local) ───
+const FUTBOL_PREFIX = 'futbol:sync:';
+const futbolListeners = new Map();
+
+function notifyFutbol(code) {
+  const data = JSON.parse(localStorage.getItem(FUTBOL_PREFIX + code) || '{}');
+  futbolListeners.get(code)?.forEach((cb) => cb(data));
+}
+
+export function setFutbolInput(code, playerId, input) {
+  const data = JSON.parse(localStorage.getItem(FUTBOL_PREFIX + code) || '{}');
+  if (!data.inputs) data.inputs = {};
+  data.inputs[playerId] = input;
+  localStorage.setItem(FUTBOL_PREFIX + code, JSON.stringify(data));
+  notifyFutbol(code);
+}
+
+export function setFutbolState(code, state) {
+  const data = JSON.parse(localStorage.getItem(FUTBOL_PREFIX + code) || '{}');
+  data.state = state;
+  localStorage.setItem(FUTBOL_PREFIX + code, JSON.stringify(data));
+  notifyFutbol(code);
+}
+
+export function subscribeFutbolSync(code, onData) {
+  if (!futbolListeners.has(code)) futbolListeners.set(code, new Set());
+  const set = futbolListeners.get(code);
+  set.add(onData);
+  queueMicrotask(() => {
+    if (set.has(onData)) onData(JSON.parse(localStorage.getItem(FUTBOL_PREFIX + code) || '{}'));
+  });
+  return () => set.delete(onData);
+}
+
+window.addEventListener('storage', (e) => {
+  if (e.key && e.key.startsWith(FUTBOL_PREFIX)) notifyFutbol(e.key.slice(FUTBOL_PREFIX.length));
+});

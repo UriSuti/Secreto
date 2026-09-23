@@ -16,6 +16,7 @@ import Rules from './codigo-secreto/Rules.jsx';
 import Players from './codigo-secreto/Players.jsx';
 import MainMenu from './menu/MainMenu.jsx';
 import CafeOTeApp from './cafeote/CafeOTeApp.jsx';
+import FutbolApp from './futbol/FutbolApp.jsx';
 
 function gameFromUrl() {
   return new URLSearchParams(window.location.search).get('juego') || '';
@@ -67,6 +68,7 @@ export default function App() {
   const [activeGame, setActiveGame] = useState(() => {
     const juego = gameFromUrl();
     if (juego === 'cafe-o-te') return 'cafe-o-te';
+    if (juego === 'futbol') return 'futbol';
     return codeFromUrl() || loadSession(codeFromUrl()) ? 'codigo-secreto' : 'menu';
   });
   const [name, setName] = useState(loadName);
@@ -264,6 +266,11 @@ export default function App() {
   // ---------- CAFÉ O TÉ ----------
   if (activeGame === 'cafe-o-te') {
     return <CafeOTeApp onBackToMenu={() => setActiveGame('menu')} />;
+  }
+
+  // ---------- FÚTBOL ----------
+  if (activeGame === 'futbol') {
+    return <FutbolApp onBackToMenu={() => setActiveGame('menu')} />;
   }
 
   // ---------- HOME DE CÓDIGO SECRETO ----------

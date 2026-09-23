@@ -582,7 +582,10 @@ export function parseRoom(value) {
   try {
     const room = JSON.parse(value);
     if (!room || typeof room !== 'object') return null;
-    if (room.gameType === 'cafe-o-te' || room.teamState) {
+    if (room.gameType && room.gameType !== 'codigo-secreto') {
+      return room;
+    }
+    if (room.teamState) {
       return room;
     }
     const valid = Array.isArray(room.board) && BOARD_SIZES.includes(room.board.length)

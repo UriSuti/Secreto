@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, onValue, ref, runTransaction } from 'firebase/database';
+import { getDatabase, onValue, ref, runTransaction, set } from 'firebase/database';
 import { firebaseConfig } from './firebaseConfig.js';
 import { ROOM_TTL_MS, makeCode, parseRoom, serializeRoom } from './codigo-secreto/game.js';
 
@@ -53,4 +53,17 @@ export function subscribeConnection(onChange) {
     if (connected) wasConnected = true;
     onChange(connected || !wasConnected);
   });
+}
+
+// ─── Funciones de alta frecuencia para Fútbol (bypassean el reducer stringificado) ───
+export function setFutbolInput(code, playerId, input) {
+  return set(ref(database(), `futbol/${code}/inputs/${playerId}`), input);
+}
+
+export function setFutbolState(code, state) {
+  return set(ref(database(), `futbol/${code}/state`), state);
+}
+
+export function subscribeFutbolSync(code, onData) {
+  return onValue(ref(database(), `futbol/${code}`), (snap) => onData(snap.val() || {}));
 }

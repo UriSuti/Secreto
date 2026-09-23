@@ -19,6 +19,14 @@ const GAMES = [
     badge: 'Disponible',
     available: true,
   },
+  {
+    id: 'futbol',
+    title: 'Fútbol',
+    icon: '⚽',
+    description: 'Juego de fútbol 2D con física real. Dos equipos, una pelota. Controlado con teclado (WASD y Flechas).',
+    badge: 'Disponible',
+    available: true,
+  },
 ];
 
 export default function MainMenu({ onSelectGame }) {
