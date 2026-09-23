@@ -4,6 +4,7 @@ import { COLORS, panelStyle } from './theme.js';
 
 const RULES = [
   'No se puede decir ninguna palabra que aparezca en el tablero.',
+  'No se puede decir mas de una palabra.',
   'No se puede hablar entre agente y espía sobre ningún aspecto de la ronda.',
   'No se puede señalar ni hacer gestos para indicar una casilla.',
   'No se puede dar información adicional de la pista.',
