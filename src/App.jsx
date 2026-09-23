@@ -14,6 +14,7 @@ import Options from './Options.jsx';
 import Chat from './Chat.jsx';
 import Rules from './Rules.jsx';
 import Players from './Players.jsx';
+import MainMenu from './MainMenu.jsx';
 
 function codeFromUrl() {
   const code = new URLSearchParams(window.location.search).get('sala') || '';
@@ -58,6 +59,7 @@ function Credits() {
 const CARD_FONT = { 5: 'clamp(10px, 2.8vw, 14px)', 6: 'clamp(9px, 2.2vw, 13px)', 7: 'clamp(8px, 1.9vw, 12px)' };
 
 export default function App() {
+  const [activeGame, setActiveGame] = useState(() => (codeFromUrl() || loadSession(codeFromUrl()) ? 'codigo-secreto' : 'menu'));
   const [name, setName] = useState(loadName);
   const [joinCode, setJoinCode] = useState(codeFromUrl);
   const [session, setSession] = useState(() => loadSession(codeFromUrl()));
@@ -245,63 +247,111 @@ export default function App() {
     </>
   );
 
-  // ---------- HOME ----------
+  // ---------- MENU PRINCIPAL ----------
+  if (!session && activeGame === 'menu') {
+    return <MainMenu onSelectGame={(gameId) => setActiveGame(gameId)} />;
+  }
+
+  // ---------- HOME DE CÓDIGO SECRETO ----------
   if (!session) {
     return (
       <div className="cs-root" style={{ background: TEAM_BG.lobby, padding: '48px 16px 32px', display: 'flex', justifyContent: 'center' }}>
         <div style={{ maxWidth: 440, width: '100%' }}>
           {banners}
           <div style={{ textAlign: 'center', marginBottom: 36 }}>
+            <button
+              type="button"
+              className="cs-btn"
+              onClick={() => setActiveGame('menu')}
+              style={{ ...ghostButton, marginBottom: 16 }}
+            >
+              ← Volver a Tareas Veganas
+            </button>
             <div className="cs-mono" style={{ fontSize: 13, color: COLORS.gold, marginBottom: 8 }}>expediente clasificado</div>
             <h1 className="cs-mono" style={{ fontSize: 38, margin: 0, color: COLORS.cream, lineHeight: 1.2 }}>Código Secreto</h1>
             <p style={{ color: COLORS.muted, marginTop: 10, fontSize: 15 }}>Jugá Codenames online con tus amigos, cada uno desde su pantalla.</p>
           </div>
 
           <div style={{ ...panelStyle, padding: 24 }}>
-            <label htmlFor="cs-name" className="cs-mono" style={labelStyle}>tu nombre</label>
-            <input
-              id="cs-name"
-              className="cs-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !joinCode) handleCreate(); }}
-              placeholder="Ej: Nico"
-              maxLength={MAX_NAME}
-              autoComplete="nickname"
-              style={{ ...inputStyle, marginBottom: 18 }}
-            />
-
-            <button type="button" className="cs-btn" disabled={busy} onClick={handleCreate} style={{ width: '100%', padding: 12, borderRadius: 4, background: COLORS.gold, color: COLORS.ink, fontWeight: 700, fontSize: 15, marginBottom: 18 }}>
-              Crear una sala nueva
-            </button>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 16px' }}>
-              <div style={{ flex: 1, height: 1, background: COLORS.panelBorder }} />
-              <span style={{ fontSize: 12, color: COLORS.muted }}>o</span>
-              <div style={{ flex: 1, height: 1, background: COLORS.panelBorder }} />
+            {/* Paso 1: Tu nombre */}
+            <div style={{ marginBottom: 24 }}>
+              <label htmlFor="cs-name" className="cs-mono" style={{ ...labelStyle, fontSize: 12, marginBottom: 8, letterSpacing: 0.5 }}>
+                1. TU NOMBRE
+              </label>
+              <input
+                id="cs-name"
+                className="cs-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !joinCode) handleCreate(); }}
+                placeholder="Escribí tu nombre..."
+                maxLength={MAX_NAME}
+                autoComplete="nickname"
+                style={{ ...inputStyle }}
+              />
             </div>
 
-            <form onSubmit={handleJoin}>
-              <label htmlFor="cs-code" className="cs-mono" style={labelStyle}>código de sala</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  id="cs-code"
-                  className="cs-input"
-                  value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
-                  placeholder="ABCD"
-                  maxLength={4}
-                  autoCapitalize="characters"
-                  autoComplete="off"
-                  style={{ ...inputStyle, flex: 1, minWidth: 0, letterSpacing: 3 }}
-                />
-                <button type="submit" className="cs-btn" disabled={busy} style={{ padding: '10px 18px', borderRadius: 4, background: COLORS.blue, color: COLORS.blueText, fontWeight: 700 }}>
-                  Unirme
+            <div className="cs-mono" style={{ fontSize: 12, color: COLORS.muted, marginBottom: 12, letterSpacing: 0.5 }}>
+              2. ELEGÍ CÓMO JUGAR
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Opción 1: Crear sala online */}
+              <div style={{ background: COLORS.panelSoft, border: `1px solid ${COLORS.panelBorder}`, borderRadius: 6, padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontWeight: 700, color: COLORS.cream, fontSize: 15 }}>🌐 Crear sala online</span>
+                  <span style={{ fontSize: 11, color: COLORS.gold, background: 'rgba(179, 137, 58, 0.15)', padding: '2px 6px', borderRadius: 3 }}>Multijugador</span>
+                </div>
+                <p style={{ margin: '0 0 10px', fontSize: 13, color: COLORS.muted }}>Creá una sala y compartí el enlace con tus amigos.</p>
+                <button
+                  type="button"
+                  className="cs-btn"
+                  disabled={busy}
+                  onClick={handleCreate}
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: 4, background: COLORS.gold, color: COLORS.ink, fontWeight: 700, fontSize: 14 }}
+                >
+                  Crear sala nueva
                 </button>
               </div>
-            </form>
 
-            {error && <div role="alert" style={{ color: COLORS.error, fontSize: 13, marginTop: 14 }}>{error}</div>}
+              {/* Opción 2: Unirse a sala */}
+              <div style={{ background: COLORS.panelSoft, border: `1px solid ${COLORS.panelBorder}`, borderRadius: 6, padding: 14 }}>
+                <div style={{ fontWeight: 700, color: COLORS.cream, fontSize: 15, marginBottom: 6 }}>🔑 Unirse a una sala</div>
+                <p style={{ margin: '0 0 10px', fontSize: 13, color: COLORS.muted }}>Ingresá el código de 4 letras que te pasaron.</p>
+                <form onSubmit={handleJoin} style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    id="cs-code"
+                    className="cs-input"
+                    value={joinCode}
+                    onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
+                    placeholder="ABCD"
+                    maxLength={4}
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    style={{ ...inputStyle, flex: 1, minWidth: 0, letterSpacing: 3, textAlign: 'center', fontWeight: 700 }}
+                  />
+                  <button
+                    type="submit"
+                    className="cs-btn"
+                    disabled={busy || !joinCode}
+                    style={{ padding: '10px 18px', borderRadius: 4, background: COLORS.blue, color: COLORS.blueText, fontWeight: 700 }}
+                  >
+                    Unirme
+                  </button>
+                </form>
+              </div>
+
+              {/* Opción 3: Juego local (Próximamente) */}
+              <div style={{ background: COLORS.panelSoft, border: `1px dashed ${COLORS.panelBorder}`, borderRadius: 6, padding: 14, opacity: 0.6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontWeight: 700, color: COLORS.cream, fontSize: 15 }}>📱 Juego local</span>
+                  <span style={{ fontSize: 11, color: COLORS.dim, background: COLORS.panel, padding: '2px 6px', borderRadius: 3 }}>Próximamente</span>
+                </div>
+                <p style={{ margin: 0, fontSize: 13, color: COLORS.dim }}>Para jugar varios en un mismo dispositivo paso a paso.</p>
+              </div>
+            </div>
+
+            {error && <div role="alert" style={{ color: COLORS.error, fontSize: 13, marginTop: 16, textAlign: 'center' }}>{error}</div>}
           </div>
           <Credits />
         </div>
