@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { COLORS, panelStyle, inputStyle, ghostButton } from '../theme.js';
+import Credits from '../Credits.jsx';
 
 export default function CafeOTeSecretWord({ room, me, onDispatch }) {
   const isPensador = me?.role === 'pensador';
@@ -262,6 +263,7 @@ export default function CafeOTeSecretWord({ room, me, onDispatch }) {
           </div>
         )}
 
+        <Credits />
       </div>
     </div>
   );

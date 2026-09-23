@@ -1,5 +1,6 @@
 import React from 'react';
 import { COLORS, panelStyle, labelStyle, inputStyle, ghostButton } from '../theme.js';
+import Credits from '../Credits.jsx';
 import { isHost } from './game.js';
 
 export default function CafeOTeLobby({ room, me, onDispatch, onLeave, onCopyInvite, copied }) {
@@ -254,6 +255,7 @@ export default function CafeOTeLobby({ room, me, onDispatch, onLeave, onCopyInvi
           )}
         </div>
 
+        <Credits />
       </div>
     </div>
   );

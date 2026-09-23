@@ -1,5 +1,6 @@
 import React from 'react';
 import { COLORS, panelStyle } from './theme.js';
+import Credits from './Credits.jsx';
 
 const GAMES = [
   {
@@ -98,10 +99,7 @@ export default function MainMenu({ onSelectGame }) {
         </div>
 
         {/* Footer / Créditos */}
-        <div className="cs-credits" style={{ marginTop: 48, textAlign: 'center', color: COLORS.dim, fontSize: 12 }}>
-          <span className="cs-mono">Tareas Veganas</span><br />
-          Juegos online para compartir
-        </div>
+        <Credits />
       </div>
     </div>
   );
