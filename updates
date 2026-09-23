@@ -26,4 +26,8 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
+<<<<<<< HEAD
 LATEST - 0.2.3 = Reorganización de estructura de carpetas (src/menu y src/codigo-secreto)
+=======
+LATEST - 0.2.3 = Correccion del CLAUDE.md (el registro de versiones es 'updates', no 'updates.txt')
+>>>>>>> 2b18ff9507251f526a335d416b0b452988637548
