@@ -28,6 +28,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
   const timeLeftRef = useRef(room.options.matchMinutes * 60 * 1000);
   const scoreRef = useRef({ red: room.score.red, blue: room.score.blue });
   const camRef = useRef({ x: FIELD.width / 2, y: FIELD.height / 2 });
+  const zoomScaleRef = useRef(1.0);
+  const zoomKeysRef = useRef({ zoomIn: false, zoomOut: false });
 
   const isHost = room.hostId === me?.id;
   const players = room.players;
@@ -127,11 +129,15 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         if ((e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') && !inp.right) { inp.right = true; changed = true; }
         if ((e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') && !inp.kick) { inp.kick = true; changed = true; }
         if (e.key === 'Shift' && !inp.shift) { inp.shift = true; changed = true; }
+        if (e.key === 'q' || e.key === 'Q') { zoomKeysRef.current.zoomOut = true; }
+        if (e.key === 'e' || e.key === 'E') { zoomKeysRef.current.zoomIn = true; }
         if (changed) syncMyInput(inp);
       }
     }
 
     function onKeyUp(e) {
+      if (e.key === 'q' || e.key === 'Q') { zoomKeysRef.current.zoomOut = false; }
+      if (e.key === 'e' || e.key === 'E') { zoomKeysRef.current.zoomIn = false; }
       if (targetId) {
         if (!inputsRef.current[targetId]) inputsRef.current[targetId] = {};
         const inp = inputsRef.current[targetId];
@@ -164,6 +170,21 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
     camRef.current = { x: FIELD.width / 2, y: FIELD.height / 2 };
 
     const canvas = canvasRef.current;
+
+    function onWheel(e) {
+      e.preventDefault();
+      if (e.deltaY > 0) {
+        // Ruedita abajo -> alejar (Zoom Out)
+        zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.08);
+      } else if (e.deltaY < 0) {
+        // Ruedita arriba -> acercar (Zoom In)
+        zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.08);
+      }
+    }
+
+    if (canvas) {
+      canvas.addEventListener('wheel', onWheel, { passive: false });
+    }
 
     function loop(timestamp) {
       if (!lastTimeRef.current) lastTimeRef.current = timestamp;
@@ -233,6 +254,14 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         return;
       }
 
+      // Actualizar zoom suave por teclado (Q/E)
+      if (zoomKeysRef.current.zoomOut) {
+        zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.02 * (dt / 16));
+      }
+      if (zoomKeysRef.current.zoomIn) {
+        zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.02 * (dt / 16));
+      }
+
       updateCamera(stateRef.current, dt);
       renderScene(ctx, stateRef.current, null);
       rafRef.current = requestAnimationFrame(loop);
@@ -253,18 +282,20 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       ctx.clearRect(0, 0, canvasSize.w, canvasSize.h);
 
       const field = state.field || FIELD;
-      // Calcular zoom de la cámara para que el seguimiento suave sea inmersivo
+      // Calcular zoom de la cámara teniendo en cuenta el zoom dinámico (rueda mouse / Q / E)
       const baseZoom = Math.max(0.8, Math.min(canvasSize.w / 900, canvasSize.h / 580));
-      const zoom = baseZoom * 1.15; // Ligero zoom para que la cámara siga al jugador naturalmente
+      const zoom = baseZoom * 1.15 * zoomScaleRef.current;
 
-      // Clamp de la cámara para que no se salga excesivamente del campo
+      // Clamp de la cámara para que no se salga excesivamente del campo (incluyendo laterales)
+      const sm = field.sideMargin || 0;
       const viewW = canvasSize.w / zoom;
       const viewH = canvasSize.h / zoom;
       const pad = 60;
+      const totalH = field.height + sm * 2; // altura total incluyendo márgenes
       const minX = Math.min(viewW / 2, field.width / 2);
       const maxX = Math.max(viewW / 2, field.width - viewW / 2);
-      const minY = Math.min(viewH / 2, field.height / 2);
-      const maxY = Math.max(viewH / 2, field.height - viewH / 2);
+      const minY = Math.min(viewH / 2, totalH / 2) - sm;
+      const maxY = Math.max(viewH / 2, totalH - viewH / 2) - sm;
 
       const cx = Math.max(minX - pad, Math.min(maxX + pad, camRef.current.x));
       const cy = Math.max(minY - pad, Math.min(maxY + pad, camRef.current.y));
@@ -303,6 +334,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
     rafRef.current = requestAnimationFrame(loop);
     return () => {
+      if (canvas) canvas.removeEventListener('wheel', onWheel);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [players, room.options.matchMinutes, canvasSize.w, canvasSize.h, me, code, isHost]);
@@ -370,8 +402,9 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       {/* Indicador de controles */}
       <div style={{ color: '#888', fontSize: 13, fontFamily: 'monospace', marginTop: 10 }}>
         Controles: <b>WASD</b> moverte &nbsp;·&nbsp;
-        {room.options.stamina && <><b>Shift</b> correr (estámina) &nbsp;·&nbsp;</>}
+        {room.options.stamina && <><b>Shift</b> correr &nbsp;·&nbsp;</>}
         <b>Espacio</b> patear &nbsp;·&nbsp;
+        <b>Ruedita / Q / E</b> zoom &nbsp;·&nbsp;
         <b>ESC</b> menú
       </div>
 
@@ -497,6 +530,23 @@ function formatTime(ms) {
 function drawField(ctx, field = FIELD) {
   const w = field.width;
   const h = field.height;
+  const sm = field.sideMargin || 0;
+
+  // Fondo extendido (zona lateral caminable) — terreno oscuro fuera de la cancha
+  if (sm > 0) {
+    ctx.fillStyle = '#1a3a1f';
+    // Zona arriba del campo
+    ctx.fillRect(0, -sm, w, sm);
+    // Zona abajo del campo
+    ctx.fillRect(0, h, w, sm);
+
+    // Línea de límite exterior (borde del mundo)
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 6]);
+    ctx.strokeRect(0, -sm, w, h + sm * 2);
+    ctx.setLineDash([]);
+  }
 
   // Fondo de césped con rayas
   ctx.fillStyle = GRASS_COLOR;
@@ -511,7 +561,7 @@ function drawField(ctx, field = FIELD) {
 
   const wt = field.wallThickness;
 
-  // Paredes exteriores
+  // Paredes exteriores (solo las paredes del campo — la pelota rebota aquí)
   ctx.fillStyle = '#224a2b';
   ctx.fillRect(0, 0, w, wt);               // arriba
   ctx.fillRect(0, h - wt, w, wt);           // abajo

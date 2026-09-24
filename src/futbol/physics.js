@@ -11,6 +11,7 @@ export const MAP_CONFIGS = {
     wallThickness: 14,
     goalDepth: 12,
     goalHeight: 180,
+    sideMargin: 60,       // zona lateral caminable fuera de la cancha (arriba/abajo)
   },
   cancha5: {
     name: 'Cancha de 5 (Chica)',
@@ -19,6 +20,7 @@ export const MAP_CONFIGS = {
     wallThickness: 16,
     goalDepth: 14,
     goalHeight: 220,
+    sideMargin: 70,
   },
   cancha9: {
     name: 'Cancha de 9 (Grande)',
@@ -27,6 +29,7 @@ export const MAP_CONFIGS = {
     wallThickness: 18,
     goalDepth: 16,
     goalHeight: 260,
+    sideMargin: 80,
   },
   cancha11: {
     name: 'Cancha de 11 (Muy grande)',
@@ -35,6 +38,7 @@ export const MAP_CONFIGS = {
     wallThickness: 20,
     goalDepth: 18,
     goalHeight: 300,
+    sideMargin: 90,
   },
 };
 
@@ -57,7 +61,11 @@ export const PLAYER_CONFIG = {
   accel: 1350,          // aceleración
   friction: 0.90,       // factor de velocidad conservado por 1/60s
   kickRange: 2,         // contacto únicamente cuando el sprite toca la pelota
-  kickForce: 420,       // fuerza del kick a la pelota
+  kickForce: 420,       // fuerza del kick (compatibilidad)
+  minKickForce: 420,    // fuerza mínima tras mantener el kick presionado (5s)
+  maxKickForce: 777,    // fuerza máxima al presionar kick instantáneamente
+  kickHoldDecayTime: 5.0, // tiempo en segundos para decaer de 777 a 420
+  kickSpeedMultiplier: 0.75, // velocidad al mantener el kick activo (25% más lento)
   restitution: 0.35,    // rebote jugador-jugador
 };
 
@@ -67,7 +75,7 @@ export const BALL_CONFIG = {
   friction: 0.965,      // desaceleración en el césped (rueda menos tiempo)
   wallRestitution: 0.60,
   playerRestitution: 0.40, // rebote al colisionar con jugador sin patear
-  maxSpeed: 600,        // velocidad máxima de la pelota
+  maxSpeed: 1000,       // velocidad máxima de la pelota (para permitir el kick de 777)
 };
 
 // ─── Posiciones iniciales ──────────────────────────────────────────────────
@@ -118,6 +126,8 @@ function makePlayerState(p, x, y) {
     vy: 0,
     isKicking: false,
     kickHeld: false,
+    kickHoldTime: 0,
+    hasHitBallThisPress: false,
     stamina: 100,
     staminaCooldown: 0,
   };
@@ -158,6 +168,8 @@ export function resetPositions(state, players) {
       vy: 0,
       isKicking: false,
       kickHeld: false,
+      kickHoldTime: 0,
+      hasHitBallThisPress: false,
       stamina: 100,
       staminaCooldown: 0,
     };
@@ -171,6 +183,8 @@ export function resetPositions(state, players) {
       vy: 0,
       isKicking: false,
       kickHeld: false,
+      kickHoldTime: 0,
+      hasHitBallThisPress: false,
       stamina: 100,
       staminaCooldown: 0,
     };
@@ -190,6 +204,29 @@ export function stepPhysics(state, inputs, dt) {
   // 1. Mover jugadores
   Object.values(next.players).forEach((player) => {
     const input = inputs[player.id] || {};
+
+    // Manejo de estado del Kick y acumulación del tiempo retenido
+    if (!input.kick) {
+      player.kickHeld = false;
+      player.isKicking = false;
+      player.kickHoldTime = 0;
+      player.hasHitBallThisPress = false;
+    } else {
+      if (!player.kickHeld) {
+        player.kickHeld = true;
+        player.isKicking = true;
+        player.kickHoldTime = 0;
+        player.hasHitBallThisPress = false;
+      } else {
+        if (!player.hasHitBallThisPress) {
+          player.isKicking = true;
+          player.kickHoldTime = (player.kickHoldTime || 0) + s;
+        } else {
+          player.isKicking = false;
+        }
+      }
+    }
+
     let ax = 0;
     let ay = 0;
     if (input.left) ax -= 1;
@@ -230,6 +267,13 @@ export function stepPhysics(state, inputs, dt) {
           player.stamina = Math.min(STAMINA_CONFIG.max, (player.stamina ?? 0) + STAMINA_CONFIG.rechargeRate * s);
         }
       }
+    }
+
+    // Reducción de velocidad si tiene el KICK activo (manteniendo kick sin colisionar)
+    if (player.isKicking) {
+      const mult = PLAYER_CONFIG.kickSpeedMultiplier ?? 0.75;
+      targetMaxSpeed *= mult;
+      targetAccel *= mult;
     }
 
     ax *= targetAccel;
@@ -282,22 +326,11 @@ export function stepPhysics(state, inputs, dt) {
 
   // 4. Kicks
   playerList.forEach((player) => {
-    const input = inputs[player.id] || {};
-
-    if (!input.kick) {
-      player.kickHeld = false;
-      player.isKicking = false;
-    } else {
-      if (!player.kickHeld && !player.isKicking) {
-        player.isKicking = true;
-        player.kickHeld = true;
-      }
-    }
-
     if (player.isKicking) {
       const contacted = tryKick(player, next.ball);
       if (contacted) {
         player.isKicking = false;
+        player.hasHitBallThisPress = true;
       }
     }
   });
@@ -313,7 +346,9 @@ export function stepPhysics(state, inputs, dt) {
 function resolvePlayerWall(player, field = FIELD) {
   const r = PLAYER_CONFIG.radius;
   const w = field.wallThickness;
+  const sm = field.sideMargin || 0; // zona lateral caminable fuera de la cancha
 
+  // Izquierda y derecha: el jugador queda limitado por las paredes del campo
   if (player.x - r < w) {
     player.x = w + r;
     player.vx = Math.abs(player.vx) * 0.4;
@@ -323,12 +358,13 @@ function resolvePlayerWall(player, field = FIELD) {
     player.vx = -Math.abs(player.vx) * 0.4;
   }
 
-  if (player.y - r < w) {
-    player.y = w + r;
+  // Arriba y abajo: el jugador puede caminar hasta el borde del sideMargin
+  if (player.y - r < -sm) {
+    player.y = -sm + r;
     player.vy = Math.abs(player.vy) * 0.4;
   }
-  if (player.y + r > field.height - w) {
-    player.y = field.height - w - r;
+  if (player.y + r > field.height + sm) {
+    player.y = field.height + sm - r;
     player.vy = -Math.abs(player.vy) * 0.4;
   }
 }
@@ -478,8 +514,15 @@ function tryKick(player, ball) {
   const nx = dx / dist;
   const ny = dy / dist;
 
-  ball.vx += nx * PLAYER_CONFIG.kickForce;
-  ball.vy += ny * PLAYER_CONFIG.kickForce;
+  const minF = PLAYER_CONFIG.minKickForce ?? 420;
+  const maxF = PLAYER_CONFIG.maxKickForce ?? 777;
+  const decayTime = PLAYER_CONFIG.kickHoldDecayTime ?? 5.0;
+
+  const holdProgress = Math.min(1.0, Math.max(0.0, (player.kickHoldTime || 0) / decayTime));
+  const force = maxF - holdProgress * (maxF - minF);
+
+  ball.vx += nx * force;
+  ball.vy += ny * force;
 
   const ballSpeed = Math.hypot(ball.vx, ball.vy);
   if (ballSpeed > BALL_CONFIG.maxSpeed) {

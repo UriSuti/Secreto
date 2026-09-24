@@ -1,6 +1,5 @@
 import React from 'react';
 import { COLORS, panelStyle } from '../theme.js';
-import Credits from './Credits.jsx';
 
 const GAMES = [
   {
@@ -105,9 +104,6 @@ export default function MainMenu({ onSelectGame }) {
             </button>
           ))}
         </div>
-
-        {/* Footer / Créditos */}
-        <Credits />
       </div>
     </div>
   );

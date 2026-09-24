@@ -1,6 +1,5 @@
 import React from 'react';
 import { COLORS, panelStyle, ghostButton } from '../theme.js';
-import Credits from '../menu/Credits.jsx';
 import { isHost, canStart, teamCount, MAX_PER_TEAM } from './game.js';
 
 const TEAM_COLOR = { red: '#e05050', blue: '#4a90d9' };
@@ -182,8 +181,6 @@ export default function FutbolLobby({ room, me, onDispatch, onLeave, onCopyInvit
             </div>
           )}
         </div>
-
-        <Credits />
       </div>
     </div>
   );

@@ -46,4 +46,12 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST - 0.4.0 = Fútbol: Eliminado el círculo negro decorativo de la pelota. Selección de mapas en las opciones del lobby (Canchas de 3, 5, 9 y 11 con dimensiones y arcos proporcionales). Opción de estámina (Shift para correr a velocidad normal consumiendo barra, caminar a 50% de velocidad sin Shift, y recarga automática tras 2s de descanso).
+0.4.0 = Fútbol: Eliminado el círculo negro decorativo de la pelota. Selección de mapas en las opciones del lobby (Canchas de 3, 5, 9 y 11 con dimensiones y arcos proporcionales). Opción de estámina (Shift para correr a velocidad normal consumiendo barra, caminar a 50% de velocidad sin Shift, y recarga automática tras 2s de descanso).
+
+--------------------------------------------------------------------------------------------------------------------
+
+0.4.1 = Fútbol: Estado de KICK retenido sin pelota (con movimiento 25% más lento). Fuerza del pateo dinámica (777 de potencia máxima al toque o conducción instantánea decayendo a 420 tras 5s de carga continua). Desactivación del kick al colisionar con la pelota. Agregado control de Zoom hacia el jugador usando la rueda del mouse y teclas Q / E.
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST - 0.4.2 = Fútbol: Laterales abiertos — zonas caminables fuera de los bordes superior e inferior de la cancha donde los jugadores pueden moverse libremente pero la pelota no puede salir. Terreno oscuro con línea punteada marca el límite del mundo.

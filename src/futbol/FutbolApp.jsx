@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { backend } from '../storage.js';
 import { clearSession, loadName, loadSession, saveSession } from '../session.js';
 import { COLORS, panelStyle, inputStyle, ghostButton, labelStyle } from '../theme.js';
-import Credits from '../menu/Credits.jsx';
 import { applyAction, cleanName, findPlayer, makeId, newRoom } from './game.js';
 import FutbolLobby from './FutbolLobby.jsx';
 import FutbolGame from './FutbolGame.jsx';
@@ -248,7 +247,6 @@ export default function FutbolApp({ onBackToMenu }) {
 
             {error && <div role="alert" style={{ color: COLORS.error, fontSize: 13, marginTop: 16, textAlign: 'center' }}>{error}</div>}
           </div>
-          <Credits />
         </div>
       </div>
     );
@@ -354,7 +352,6 @@ export default function FutbolApp({ onBackToMenu }) {
               Salir del partido
             </button>
           </div>
-          <Credits />
         </div>
       </div>
     );

@@ -150,3 +150,33 @@ test('Fútbol Física: sistema de estámina', () => {
   const sprintVx = res.nextState.players.p1.vx;
   assert.ok(sprintVx > walkVx, 'Velocidad al correr debe ser mayor que al caminar');
 });
+
+test('Fútbol Física: fuerza de kick dinámica (777 al toque, 420 tras 5s) y velocidad reducida', () => {
+  const players = [{ id: 'p1', name: 'Messi', team: 'red' }];
+  let state = createGameState(players);
+  state.players.p1.x = state.ball.x - 100;
+  state.players.p1.y = state.ball.y;
+
+  // 1. Mantener kick presionado sin tocar la pelota -> isKicking sigue true, acumulando tiempo
+  let res = stepPhysics(state, { p1: { kick: true, right: true } }, 1000);
+  state = res.nextState;
+  assert.equal(state.players.p1.isKicking, true);
+  assert.ok(state.players.p1.kickHoldTime >= 1.0);
+
+  // 2. Patear al instante (holdTime = 0) produce fuerza máxima (777)
+  let stateInstant = createGameState(players);
+  stateInstant.players.p1.x = stateInstant.ball.x - 25;
+  let resInstant = stepPhysics(stateInstant, { p1: { kick: true } }, 50);
+  const vxInstant = Math.abs(resInstant.nextState.ball.vx);
+
+  // 3. Patear tras mantener presionado 5s produce fuerza mínima (420)
+  let stateHeld = createGameState(players);
+  stateHeld.players.p1.x = stateHeld.ball.x - 25;
+  stateHeld.players.p1.kickHoldTime = 5.0;
+  stateHeld.players.p1.kickHeld = true;
+  stateHeld.players.p1.isKicking = true;
+  let resHeld = stepPhysics(stateHeld, { p1: { kick: true } }, 50);
+  const vxHeld = Math.abs(resHeld.nextState.ball.vx);
+
+  assert.ok(vxInstant > vxHeld, 'Patada instantánea (777) debe ser más potente que tras mantener 5s (420)');
+});
