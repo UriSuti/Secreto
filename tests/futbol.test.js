@@ -180,3 +180,234 @@ test('Fútbol Física: fuerza de kick dinámica (777 al toque, 420 tras 5s) y ve
 
   assert.ok(vxInstant > vxHeld, 'Patada instantánea (777) debe ser más potente que tras mantener 5s (420)');
 });
+
+test('Fútbol Física: Modo Coches - cancha vertical, orientación e inercia', () => {
+  const players = [
+    { id: 'p1', name: 'Rojo', team: 'red' },
+    { id: 'p2', name: 'Azul', team: 'blue' },
+  ];
+  let state = createGameState(players, { vehicleMode: 'coches' });
+
+  assert.equal(state.options.vehicleMode, 'coches');
+  assert.equal(state.field.isVertical, true, 'La cancha debe estar orientada verticalmente');
+  assert.ok(state.field.height > state.field.width, 'El largo vertical (height) debe ser mayor que el ancho (width)');
+  assert.equal(state.players.p1.angle, -Math.PI / 2); // Rojo abajo mira hacia ARRIBA (-PI/2)
+  assert.equal(state.players.p2.angle, Math.PI / 2);  // Azul arriba mira hacia ABAJO (PI/2)
+  assert.equal(state.players.p1.speed, 0);
+
+  // Acelerar hacia adelante (hacia donde apunta el auto, que es hacia arriba)
+  let res = stepPhysics(state, { p1: { accelerate: true } }, 200);
+  state = res.nextState;
+  assert.ok(state.players.p1.speed > 0, 'El auto debe ganar velocidad al acelerar');
+  assert.ok(state.players.p1.vy < 0, 'La velocidad vy debe ser negativa (hacia arriba)');
+  assert.ok(state.players.p1.y < state.players.p1.y + 1);
+
+  // Girar a la izquierda (turnLeft / A) mientras avanza: el ángulo cambia y conserva inercia
+  const oldAngle = state.players.p1.angle;
+  res = stepPhysics(state, { p1: { accelerate: true, turnLeft: true } }, 100);
+  state = res.nextState;
+  assert.ok(state.players.p1.angle < oldAngle, 'Girar hacia la izquierda debe rotar en sentido antihorario');
+  assert.ok(state.players.p1.vy < 0, 'Sigue avanzando hacia arriba por inercia mientras curva');
+});
+
+test('Fútbol Física: Modo Coches - frenado y marcha atrás progresiva', () => {
+  const players = [{ id: 'p1', name: 'Rojo', team: 'red' }];
+  let state = createGameState(players, { vehicleMode: 'coches' });
+
+  // Acelerar hasta tener buena velocidad
+  for (let i = 0; i < 5; i++) {
+    state = stepPhysics(state, { p1: { accelerate: true } }, 100).nextState;
+  }
+  const topSpeed = state.players.p1.speed;
+  assert.ok(topSpeed > 50);
+
+  // Frenar con S (brake): la velocidad debe reducirse rápido
+  state = stepPhysics(state, { p1: { brake: true } }, 200).nextState;
+  assert.ok(state.players.p1.speed < topSpeed, 'Frenar debe reducir la velocidad');
+
+  // Seguir frenando hasta detenerse por completo
+  for (let i = 0; i < 10; i++) {
+    state = stepPhysics(state, { p1: { brake: true } }, 100).nextState;
+  }
+
+  // Al mantener presionado brake tras detenerse, inicia marcha atrás (speed negativo)
+  assert.ok(state.players.p1.speed < 0, 'Mantener brake detenido debe iniciar marcha atrás');
+  assert.ok(state.players.p1.speed >= -90, 'La marcha atrás debe respetar el límite maxSpeedReverse');
+});
+
+test('Fútbol Física: Modo Coches - colisión con pelota (mayor impulso frontal que lateral)', () => {
+  const players = [{ id: 'p1', name: 'Rojo', team: 'red' }];
+
+  // 1. Choque frontal: auto apuntando a la pelota (hacia arriba, angle -PI/2) avanzando a velocidad
+  let stateFront = createGameState(players, { vehicleMode: 'coches' });
+  stateFront.players.p1.x = stateFront.ball.x;
+  stateFront.players.p1.y = stateFront.ball.y + 20;
+  stateFront.players.p1.angle = -Math.PI / 2;
+  stateFront.players.p1.speed = 200;
+  stateFront.players.p1.vy = -200;
+
+  const resFront = stepPhysics(stateFront, {}, 50);
+  const ballSpeedFront = Math.hypot(resFront.nextState.ball.vx, resFront.nextState.ball.vy);
+
+  // 2. Choque lateral: auto apuntando hacia la derecha (angle 0) rozando la pelota por el costado
+  let stateSide = createGameState(players, { vehicleMode: 'coches' });
+  stateSide.players.p1.x = stateSide.ball.x - 20;
+  stateSide.players.p1.y = stateSide.ball.y;
+  stateSide.players.p1.angle = 0;
+  stateSide.players.p1.speed = 100;
+  stateSide.players.p1.vx = 100;
+
+  const resSide = stepPhysics(stateSide, {}, 50);
+  const ballSpeedSide = Math.hypot(resSide.nextState.ball.vx, resSide.nextState.ball.vy);
+
+  assert.ok(ballSpeedFront > ballSpeedSide, 'El impacto frontal debe transmitir mayor impulso que el lateral');
+});
+
+test('Fútbol Física: Modo Coches - detección de goles en arcos superior e inferior', () => {
+  const players = [
+    { id: 'p1', name: 'Rojo', team: 'red' },
+    { id: 'p2', name: 'Azul', team: 'blue' },
+  ];
+  let state = createGameState(players, { vehicleMode: 'coches' });
+  const cx = state.field.width / 2;
+  const w = state.field.wallThickness;
+
+  // Pelota entrando al arco superior (defendido por Azul) -> Gol de Rojo
+  state.ball.x = cx;
+  state.ball.y = w - 5;
+  let res = stepPhysics(state, {}, 16);
+  assert.equal(res.goal, 'red', 'La pelota en el arco superior debe contar como gol de Rojo');
+
+  // Pelota entrando al arco inferior (defendido por Rojo) -> Gol de Azul
+  state.ball.x = cx;
+  state.ball.y = state.field.height - w + 5;
+  res = stepPhysics(state, {}, 16);
+  assert.equal(res.goal, 'blue', 'La pelota en el arco inferior debe contar como gol de Azul');
+});
+
+test('Fútbol: opción vehicleMode en reducer de sala', () => {
+  let room = newRoom('h1', 'Messi');
+  assert.equal(room.options.vehicleMode, 'pelotas');
+
+  // Host cambia a modo coches
+  room = applyAction(room, {
+    type: 'setOptions',
+    playerId: 'h1',
+    options: { vehicleMode: 'coches' },
+  });
+  assert.equal(room.options.vehicleMode, 'coches');
+});
+
+test('Fútbol Física: Modo Coches - sistema de Boost (consumo ~16.7 u/s y mayor velocidad punta)', () => {
+  const players = [{ id: 'p1', name: 'Rojo', team: 'red' }];
+  let state = createGameState(players, { vehicleMode: 'coches' });
+  const initialBoost = state.players.p1.boost;
+  assert.equal(initialBoost, 33, 'El auto debe iniciar con 33 de boost');
+
+  // Limpiar pickups para que no recarguen el boost durante el test
+  state.boostPickups = [];
+
+  // 2 segundos de boost continuo — con 16.7 u/s gasta los 33 en ~2s
+  for (let i = 0; i < 20; i++) {
+    state = stepPhysics(state, { p1: { boost: true } }, 100).nextState;
+  }
+  // En 2 segundos consume aprox 33.4 unidades -> queda en 0 o muy cerca
+  assert.equal(state.players.p1.boost, 0, 'Tras ~2s de uso con 33 iniciales el boost debe agotarse a 0');
+  assert.equal(state.players.p1.isBoosting, false, 'Al llegar a 0 deja de quemar boost');
+
+  // Sin boost no puede superar maxSpeed (280) acelerando normalmente
+  for (let i = 0; i < 15; i++) {
+    state = stepPhysics(state, { p1: { accelerate: true } }, 100).nextState;
+  }
+  assert.ok(state.players.p1.speed <= 280.01, 'Sin boost no debe superar 280');
+
+  // Con boost (recargado a 100) puede alcanzar maxSpeedWithBoost (430)
+  state.players.p1.boost = 100;
+  state.players.p1.y = state.field.height - 120; // Reposicionar abajo para tener recta libre
+  for (let i = 0; i < 10; i++) {
+    state = stepPhysics(state, { p1: { boost: true } }, 100).nextState;
+  }
+  assert.ok(state.players.p1.speed > 280, `Con boost debe superar el límite normal de 280 (fue ${state.players.p1.speed})`);
+  assert.ok(state.players.p1.speed <= 430.01, 'No debe superar maxSpeedWithBoost de 430');
+});
+
+test('Fútbol Física: Modo Coches - recolección de Boost Pickups (+12 pequeños, +100 grandes, clamp 100)', () => {
+  const players = [{ id: 'p1', name: 'Rojo', team: 'red' }];
+  let state = createGameState(players, { vehicleMode: 'coches' });
+  assert.ok(state.boostPickups && state.boostPickups.length > 0, 'Debe haber pickups en la cancha');
+
+  const smallPad = state.boostPickups.find(p => p.type === 'small');
+  const largePad = state.boostPickups.find(p => p.type === 'large');
+  assert.ok(smallPad && largePad);
+
+  // Auto con 50 de boost recoge un pad pequeño (+12)
+  state.players.p1.boost = 50;
+  state.players.p1.x = smallPad.x;
+  state.players.p1.y = smallPad.y;
+
+  state = stepPhysics(state, {}, 50).nextState;
+  assert.equal(state.players.p1.boost, 62, 'Debe haber sumado exactamente +12');
+  const pickedSmall = state.boostPickups.find(p => p.id === smallPad.id);
+  assert.equal(pickedSmall.active, false, 'El pad recogido debe quedar inactivo');
+  assert.ok(pickedSmall.respawnTimer > 0, 'Debe iniciar su timer de respawn');
+
+  // Auto con 80 de boost recoge pad grande (+100) -> no supera 100 (clamp)
+  state.players.p1.boost = 80;
+  state.players.p1.x = largePad.x;
+  state.players.p1.y = largePad.y;
+
+  state = stepPhysics(state, {}, 50).nextState;
+  assert.equal(state.players.p1.boost, 100, 'El boost nunca debe superar 100');
+  const pickedLarge = state.boostPickups.find(p => p.id === largePad.id);
+  assert.equal(pickedLarge.active, false);
+});
+
+test('Fútbol Física: Modo Coches - KICK / FLIP (Rocket League front flip) y pelota pesada', () => {
+  const players = [{ id: 'p1', name: 'Rojo', team: 'red' }];
+
+  // 1. Flip lejos de la pelota: el auto salta/impulsa pero no afecta a la pelota a distancia
+  let state = createGameState(players, { vehicleMode: 'coches' });
+  state.boostPickups = [];
+  state.players.p1.x = state.ball.x;
+  state.players.p1.y = state.ball.y + 180; // Lejos de la pelota
+  state.players.p1.angle = -Math.PI / 2;
+
+  state = stepPhysics(state, { p1: { kick: true } }, 50).nextState;
+  assert.equal(state.players.p1.isFlipping, true, 'Debe activar el estado isFlipping');
+  assert.ok(state.players.p1.flipCooldown > 0, 'Debe tener cooldown activo');
+  assert.equal(state.ball.vx, 0, 'La pelota no debe moverse a distancia sin contacto físico');
+  assert.equal(state.ball.vy, 0);
+
+  // 2. Toque suave / auto lento con la pelota pesada: apenas la desplaza
+  let slowState = createGameState(players, { vehicleMode: 'coches' });
+  slowState.boostPickups = [];
+  slowState.players.p1.x = slowState.ball.x;
+  slowState.players.p1.y = slowState.ball.y + 24; // Contacto inmediato
+  slowState.players.p1.angle = -Math.PI / 2;
+  slowState.players.p1.speed = 30; // Muy lento
+  slowState.players.p1.vy = -30;
+
+  slowState = stepPhysics(slowState, {}, 50).nextState;
+  const slowBallSpeed = Math.hypot(slowState.ball.vx, slowState.ball.vy);
+  assert.ok(slowBallSpeed < 40, `Un auto lento debe apenas mover la pelota pesada (fue ${slowBallSpeed})`);
+
+  // 3. Contacto frontal durante FLIP activo: proyecta la pelota con impulso masivo.
+  // Pre-establecemos isFlipping=true y colocamos la pelota justo al frente del auto
+  // (fuera del cuerpo pero dentro del radio de la pelota) y usamos dt=16ms (60fps real).
+  let flipState = createGameState(players, { vehicleMode: 'coches' });
+  flipState.boostPickups = [];
+  flipState.players.p1.angle = -Math.PI / 2; // Apunta hacia arriba
+  flipState.players.p1.speed = 250;
+  flipState.players.p1.vy = -250;
+  flipState.players.p1.isFlipping = true;
+  flipState.players.p1.flipTime = 360;
+  // Pelota justo al frente del auto (halfW=14 + algunos px dentro del radio)
+  flipState.ball.x = flipState.players.p1.x;
+  flipState.ball.y = flipState.players.p1.y - 25; // Justo al frente del morro del auto
+
+  flipState = stepPhysics(flipState, { p1: {} }, 16).nextState;
+  const flipBallSpeed = Math.hypot(flipState.ball.vx, flipState.ball.vy);
+  assert.ok(flipBallSpeed > 500, `El flip debe proyectar la pelota pesada con fuerza masiva > 500 (fue ${flipBallSpeed})`);
+});
+
+

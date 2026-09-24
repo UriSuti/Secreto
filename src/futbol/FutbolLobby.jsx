@@ -78,6 +78,22 @@ export default function FutbolLobby({ room, code, me, onDispatch, onLeave, onCop
       {/* Opciones del Partido */}
       <LobbyOptions title="modificadores de la partida" canEdit={host}>
         <OptionField
+          title="Modificador de juego"
+          hint="Pelotas: clásico con patada directa. Coches: vehículos 2D con inercia, derrape, marcha atrás y colisión física."
+        >
+          <Segmented
+            name="vehicleMode"
+            value={options.vehicleMode || 'pelotas'}
+            disabled={!host}
+            onChange={(val) => onDispatch({ type: 'setOptions', options: { vehicleMode: val } })}
+            choices={[
+              { value: 'pelotas', label: '⚽ Pelotas' },
+              { value: 'coches', label: '🚗 Coches' },
+            ]}
+          />
+        </OptionField>
+
+        <OptionField
           title="Duración del partido"
           hint="Tiempo reglamentario de juego. El reloj corre mientras la pelota está en juego."
         >

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { backend } from '../storage.js';
 import { COLORS, panelStyle, ghostButton } from '../theme.js';
-import { FIELD, GOAL, PLAYER_CONFIG, BALL_CONFIG, createGameState, stepPhysics, resetPositions } from './physics.js';
+import { FIELD, GOAL, PLAYER_CONFIG, CAR_CONFIG, BALL_CONFIG, CAR_BALL_CONFIG, createGameState, stepPhysics, resetPositions } from './physics.js';
 
 const TEAM_COLOR = {
   red: '#e05050',
@@ -16,6 +16,7 @@ const LINE_COLOR = 'rgba(255,255,255,0.75)';
 const LINE_WIDTH = 2;
 
 export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackToLobby, onLeave }) {
+  const isCarMode = room.options?.vehicleMode === 'coches';
   const canvasRef = useRef(null);
   const stateRef = useRef(null);
   const inputsRef = useRef({});
@@ -59,6 +60,9 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           cli.ball.y += dy * 0.25;
           cli.ball.vx = hState.ball.vx;
           cli.ball.vy = hState.ball.vy;
+          if (hState.boostPickups) {
+            cli.boostPickups = hState.boostPickups;
+          }
           Object.keys(hState.players).forEach(pid => {
             const pHost = hState.players[pid];
             const pCli = cli.players[pid];
@@ -67,6 +71,15 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
               pCli.y += (pHost.y - pCli.y) * 0.25;
               pCli.vx = pHost.vx;
               pCli.vy = pHost.vy;
+              if (pHost.angle !== undefined) {
+                pCli.angle = pHost.angle;
+                pCli.speed = pHost.speed;
+                pCli.boost = pHost.boost;
+                pCli.isBoosting = pHost.isBoosting;
+                pCli.isFlipping = pHost.isFlipping;
+                pCli.flipTime = pHost.flipTime;
+                pCli.flipCooldown = pHost.flipCooldown;
+              }
             }
           });
         }
@@ -123,12 +136,29 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         if (!inputsRef.current[targetId]) inputsRef.current[targetId] = {};
         const inp = inputsRef.current[targetId];
         let changed = false;
-        if ((e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') && !inp.up) { inp.up = true; changed = true; }
-        if ((e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') && !inp.down) { inp.down = true; changed = true; }
-        if ((e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') && !inp.left) { inp.left = true; changed = true; }
-        if ((e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') && !inp.right) { inp.right = true; changed = true; }
-        if ((e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') && !inp.kick) { inp.kick = true; changed = true; }
-        if (e.key === 'Shift' && !inp.shift) { inp.shift = true; changed = true; }
+
+        if (isCarMode) {
+          // W o ArrowUp: avanzar adelante (hacia donde apunta el auto)
+          if ((e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') && !inp.accelerate) { inp.accelerate = true; changed = true; }
+          // S o ArrowDown: retroceder / frenar (dirección contraria a donde vas con W)
+          if ((e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') && !inp.brake) { inp.brake = true; changed = true; }
+          // A o ArrowLeft: girar izquierda (antihorario)
+          if ((e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') && !inp.turnLeft) { inp.turnLeft = true; changed = true; }
+          // D o ArrowRight: girar derecha (horario)
+          if ((e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') && !inp.turnRight) { inp.turnRight = true; changed = true; }
+          // Shift: BOOST continuo
+          if (e.key === 'Shift' && !inp.boost) { inp.boost = true; changed = true; }
+          // Space / Enter / X: KICK / FLIP aéreo
+          if ((e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') && !inp.kick) { inp.kick = true; changed = true; }
+        } else {
+          if ((e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') && !inp.up) { inp.up = true; changed = true; }
+          if ((e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') && !inp.down) { inp.down = true; changed = true; }
+          if ((e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') && !inp.left) { inp.left = true; changed = true; }
+          if ((e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') && !inp.right) { inp.right = true; changed = true; }
+          if ((e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') && !inp.kick) { inp.kick = true; changed = true; }
+          if (e.key === 'Shift' && !inp.shift) { inp.shift = true; changed = true; }
+        }
+
         if (e.key === 'q' || e.key === 'Q') { zoomKeysRef.current.zoomOut = true; }
         if (e.key === 'e' || e.key === 'E') { zoomKeysRef.current.zoomIn = true; }
         if (changed) syncMyInput(inp);
@@ -142,12 +172,23 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         if (!inputsRef.current[targetId]) inputsRef.current[targetId] = {};
         const inp = inputsRef.current[targetId];
         let changed = false;
-        if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') { inp.up = false; changed = true; }
-        if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') { inp.down = false; changed = true; }
-        if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') { inp.left = false; changed = true; }
-        if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') { inp.right = false; changed = true; }
-        if (e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') { inp.kick = false; changed = true; }
-        if (e.key === 'Shift') { inp.shift = false; changed = true; }
+
+        if (isCarMode) {
+          if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') { inp.accelerate = false; changed = true; }
+          if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') { inp.brake = false; changed = true; }
+          if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') { inp.turnLeft = false; changed = true; }
+          if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') { inp.turnRight = false; changed = true; }
+          if (e.key === 'Shift') { inp.boost = false; changed = true; }
+          if (e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') { inp.kick = false; changed = true; }
+        } else {
+          if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') { inp.up = false; changed = true; }
+          if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') { inp.down = false; changed = true; }
+          if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') { inp.left = false; changed = true; }
+          if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') { inp.right = false; changed = true; }
+          if (e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') { inp.kick = false; changed = true; }
+          if (e.key === 'Shift') { inp.shift = false; changed = true; }
+        }
+
         if (changed) syncMyInput(inp);
       }
     }
@@ -158,7 +199,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [players, me, code]);
+  }, [players, me, code, isCarMode]);
 
   // ─── Game loop ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -282,20 +323,23 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       ctx.clearRect(0, 0, canvasSize.w, canvasSize.h);
 
       const field = state.field || FIELD;
-      // Calcular zoom de la cámara teniendo en cuenta el zoom dinámico (rueda mouse / Q / E)
-      const baseZoom = Math.max(0.8, Math.min(canvasSize.w / 900, canvasSize.h / 580));
+      // Calcular zoom de la cámara teniendo en cuenta la orientación (vertical u horizontal)
+      const baseZoom = field.isVertical
+        ? Math.max(0.65, Math.min(canvasSize.w / 750, canvasSize.h / 1050))
+        : Math.max(0.8, Math.min(canvasSize.w / 900, canvasSize.h / 580));
       const zoom = baseZoom * 1.15 * zoomScaleRef.current;
 
-      // Clamp de la cámara para que no se salga excesivamente del campo (incluyendo laterales)
+      // Clamp de la cámara para que no se salga excesivamente del campo
       const sm = field.sideMargin || 0;
       const viewW = canvasSize.w / zoom;
       const viewH = canvasSize.h / zoom;
       const pad = 60;
-      const totalH = field.height + sm * 2; // altura total incluyendo márgenes
-      const minX = Math.min(viewW / 2, field.width / 2);
-      const maxX = Math.max(viewW / 2, field.width - viewW / 2);
-      const minY = Math.min(viewH / 2, totalH / 2) - sm;
-      const maxY = Math.max(viewH / 2, totalH - viewH / 2) - sm;
+      const totalW = field.width + (field.isVertical ? sm * 2 : 0);
+      const totalH = field.height + (!field.isVertical ? sm * 2 : 0);
+      const minX = Math.min(viewW / 2, totalW / 2) - (field.isVertical ? sm : 0);
+      const maxX = Math.max(viewW / 2, totalW - viewW / 2) - (field.isVertical ? sm : 0);
+      const minY = Math.min(viewH / 2, totalH / 2) - (!field.isVertical ? sm : 0);
+      const maxY = Math.max(viewH / 2, totalH - viewH / 2) - (!field.isVertical ? sm : 0);
 
       const cx = Math.max(minX - pad, Math.min(maxX + pad, camRef.current.x));
       const cy = Math.max(minY - pad, Math.min(maxY + pad, camRef.current.y));
@@ -307,13 +351,28 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
       // Dibujar mundo
       drawField(ctx, field);
+      if (isCarMode && state.boostPickups) {
+        drawBoostPickups(ctx, state.boostPickups);
+      }
       drawGoals(ctx, field);
-      drawBall(ctx, state.ball);
+      drawBall(ctx, state.ball, isCarMode);
       Object.values(state.players).forEach((p) => {
-        drawPlayer(ctx, p, state.options?.stamina);
+        if (isCarMode) {
+          drawCar(ctx, p);
+        } else {
+          drawPlayer(ctx, p, state.options?.stamina);
+        }
       });
 
       ctx.restore();
+
+      // HUD de Coches (Rocket League Boost Meter & Flip Status)
+      if (isCarMode) {
+        const myCar = (me && state.players[me.id]) || Object.values(state.players)[0];
+        if (myCar) {
+          drawCarHUD(ctx, myCar, canvasSize);
+        }
+      }
 
       // Overlay de mensaje (Cuenta regresiva o GOL)
       if (overlayMessage) {
@@ -401,11 +460,25 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
       {/* Indicador de controles */}
       <div style={{ color: '#888', fontSize: 13, fontFamily: 'monospace', marginTop: 10 }}>
-        Controles: <b>WASD</b> moverte &nbsp;·&nbsp;
-        {room.options.stamina && <><b>Shift</b> correr &nbsp;·&nbsp;</>}
-        <b>Espacio</b> patear &nbsp;·&nbsp;
-        <b>Ruedita / Q / E</b> zoom &nbsp;·&nbsp;
-        <b>ESC</b> menú
+        {isCarMode ? (
+          <>
+            Controles: <b>W</b> avanzar &nbsp;·&nbsp;
+            <b>S</b> retroceder / frenar &nbsp;·&nbsp;
+            <b>A / D</b> girar &nbsp;·&nbsp;
+            <b>Shift</b> BOOST &nbsp;·&nbsp;
+            <b>Espacio</b> KICK / FLIP &nbsp;·&nbsp;
+            <b>Ruedita / Q / E</b> zoom &nbsp;·&nbsp;
+            <b>ESC</b> menú
+          </>
+        ) : (
+          <>
+            Controles: <b>WASD</b> moverte &nbsp;·&nbsp;
+            {room.options.stamina && <><b>Shift</b> correr &nbsp;·&nbsp;</>}
+            <b>Espacio</b> patear &nbsp;·&nbsp;
+            <b>Ruedita / Q / E</b> zoom &nbsp;·&nbsp;
+            <b>ESC</b> menú
+          </>
+        )}
       </div>
 
       {/* Menú de opciones (ESC) - No pausa el partido */}
@@ -532,15 +605,80 @@ function drawField(ctx, field = FIELD) {
   const h = field.height;
   const sm = field.sideMargin || 0;
 
-  // Fondo extendido (zona lateral caminable) — terreno oscuro fuera de la cancha
+  if (field.isVertical) {
+    // Zona lateral exterior (izquierda / derecha)
+    if (sm > 0) {
+      ctx.fillStyle = '#1a3a1f';
+      ctx.fillRect(-sm, 0, sm, h);
+      ctx.fillRect(w, 0, sm, h);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 6]);
+      ctx.strokeRect(-sm, 0, w + sm * 2, h);
+      ctx.setLineDash([]);
+    }
+
+    // Fondo de césped
+    ctx.fillStyle = GRASS_COLOR;
+    ctx.fillRect(0, 0, w, h);
+
+    // Rayas horizontales de césped
+    const stripeH = 70;
+    ctx.fillStyle = GRASS_STRIPE;
+    for (let y = 0; y < h; y += stripeH * 2) {
+      ctx.fillRect(0, y, w, stripeH);
+    }
+
+    const wt = field.wallThickness;
+
+    // Paredes exteriores (solo del campo)
+    ctx.fillStyle = '#224a2b';
+    ctx.fillRect(0, 0, w, wt);               // arriba
+    ctx.fillRect(0, h - wt, w, wt);           // abajo
+    ctx.fillRect(0, wt, wt, h - wt * 2);      // izquierda
+    ctx.fillRect(w - wt, wt, wt, h - wt * 2); // derecha
+
+    // Líneas del campo
+    ctx.strokeStyle = LINE_COLOR;
+    ctx.lineWidth = LINE_WIDTH;
+    ctx.strokeRect(wt, wt, w - wt * 2, h - wt * 2);
+
+    // Línea del medio (horizontal)
+    const cx = w / 2;
+    const cy = h / 2;
+    ctx.beginPath();
+    ctx.moveTo(wt, cy);
+    ctx.lineTo(w - wt, cy);
+    ctx.stroke();
+
+    // Círculo central
+    ctx.beginPath();
+    ctx.arc(cx, cy, 80, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Punto central
+    ctx.fillStyle = LINE_COLOR;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Áreas de penal (arriba y abajo)
+    const areaW = (field.goalWidth || 180) + 80;
+    const areaH = 120;
+    // Área superior (defiende Azul)
+    ctx.strokeRect(cx - areaW / 2, wt, areaW, areaH);
+    // Área inferior (defiende Rojo)
+    ctx.strokeRect(cx - areaW / 2, h - wt - areaH, areaW, areaH);
+    return;
+  }
+
+  // Fondo extendido horizontal (zona lateral caminable)
   if (sm > 0) {
     ctx.fillStyle = '#1a3a1f';
-    // Zona arriba del campo
     ctx.fillRect(0, -sm, w, sm);
-    // Zona abajo del campo
     ctx.fillRect(0, h, w, sm);
 
-    // Línea de límite exterior (borde del mundo)
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.lineWidth = 2;
     ctx.setLineDash([8, 6]);
@@ -548,11 +686,10 @@ function drawField(ctx, field = FIELD) {
     ctx.setLineDash([]);
   }
 
-  // Fondo de césped con rayas
+  // Fondo de césped con rayas verticales
   ctx.fillStyle = GRASS_COLOR;
   ctx.fillRect(0, 0, w, h);
 
-  // Rayas de césped (decorativas)
   const stripeW = 70;
   ctx.fillStyle = GRASS_STRIPE;
   for (let x = 0; x < w; x += stripeW * 2) {
@@ -561,7 +698,7 @@ function drawField(ctx, field = FIELD) {
 
   const wt = field.wallThickness;
 
-  // Paredes exteriores (solo las paredes del campo — la pelota rebota aquí)
+  // Paredes exteriores
   ctx.fillStyle = '#224a2b';
   ctx.fillRect(0, 0, w, wt);               // arriba
   ctx.fillRect(0, h - wt, w, wt);           // abajo
@@ -571,8 +708,6 @@ function drawField(ctx, field = FIELD) {
   // Líneas del campo
   ctx.strokeStyle = LINE_COLOR;
   ctx.lineWidth = LINE_WIDTH;
-
-  // Borde interior del campo
   ctx.strokeRect(wt, wt, w - wt * 2, h - wt * 2);
 
   // Línea del medio
@@ -597,16 +732,66 @@ function drawField(ctx, field = FIELD) {
   // Áreas de gol
   const areaW = 120;
   const areaH = field.goalHeight + 80;
-  // Área izquierda
   ctx.strokeRect(wt, cy - areaH / 2, areaW, areaH);
-  // Área derecha
   ctx.strokeRect(w - wt - areaW, cy - areaH / 2, areaW, areaH);
 }
 
 function drawGoals(ctx, field = FIELD) {
   const w = field.width;
-  const cy = field.height / 2;
+  const h = field.height;
   const wt = field.wallThickness;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  if (field.isVertical) {
+    const goalW = field.goalWidth || 180;
+    const goalHalf = goalW / 2;
+    const goalDepth = field.goalDepth || 28;
+
+    // Arco superior (el equipo AZUL defiende este arco)
+    ctx.fillStyle = 'rgba(74, 144, 217, 0.18)';
+    ctx.fillRect(cx - goalHalf, 0, goalW, wt + goalDepth);
+    ctx.strokeStyle = TEAM_COLOR.blue;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx - goalHalf, wt);
+    ctx.lineTo(cx - goalHalf, wt - goalDepth);
+    ctx.lineTo(cx + goalHalf, wt - goalDepth);
+    ctx.lineTo(cx + goalHalf, wt);
+    ctx.stroke();
+
+    // Postes del arco superior
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx - goalHalf, wt, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + goalHalf, wt, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Arco inferior (el equipo ROJO defiende este arco)
+    ctx.fillStyle = 'rgba(224, 80, 80, 0.18)';
+    ctx.fillRect(cx - goalHalf, h - wt - goalDepth, goalW, wt + goalDepth);
+    ctx.strokeStyle = TEAM_COLOR.red;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx - goalHalf, h - wt);
+    ctx.lineTo(cx - goalHalf, h - wt + goalDepth);
+    ctx.lineTo(cx + goalHalf, h - wt + goalDepth);
+    ctx.lineTo(cx + goalHalf, h - wt);
+    ctx.stroke();
+
+    // Postes del arco inferior
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx - goalHalf, h - wt, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + goalHalf, h - wt, 5, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
   const goalHalf = field.goalHeight / 2;
   const goalDepth = field.goalDepth || 28;
 
@@ -707,25 +892,402 @@ function drawPlayer(ctx, player, showStaminaBar = false) {
   }
 }
 
-function drawBall(ctx, ball) {
-  const r = BALL_CONFIG.radius;
+function drawBall(ctx, ball, isCarMode = false) {
+  const r = isCarMode ? (CAR_BALL_CONFIG?.radius || 14.5) : BALL_CONFIG.radius;
 
-  // Sombra
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  // Sombra más profunda para pelota pesada
+  ctx.fillStyle = isCarMode ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.35)';
   ctx.beginPath();
   ctx.ellipse(ball.x + 2, ball.y + 3, r, r * 0.6, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Pelota blanca limpia (sin círculo negro)
-  ctx.fillStyle = '#f0f0f0';
+  if (isCarMode) {
+    // Pelota pesada modo Coches: textura técnica / balón estilizado de fútbol
+    ctx.fillStyle = '#f5f5f5';
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pentágono central
+    ctx.fillStyle = '#23252a';
+    ctx.beginPath();
+    const hexR = r * 0.42;
+    for (let i = 0; i < 5; i++) {
+      const a = (i * Math.PI * 2) / 5 - Math.PI / 2;
+      const hx = ball.x + Math.cos(a) * hexR;
+      const hy = ball.y + Math.sin(a) * hexR;
+      if (i === 0) ctx.moveTo(hx, hy);
+      else ctx.lineTo(hx, hy);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Costuras exteriores
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 5; i++) {
+      const a = (i * Math.PI * 2) / 5 - Math.PI / 2;
+      const hx = ball.x + Math.cos(a) * hexR;
+      const hy = ball.y + Math.sin(a) * hexR;
+      const ox = ball.x + Math.cos(a) * r;
+      const oy = ball.y + Math.sin(a) * r;
+      ctx.beginPath();
+      ctx.moveTo(hx, hy);
+      ctx.lineTo(ox, oy);
+      ctx.stroke();
+    }
+
+    // Borde exterior metálico
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    // Pelota normal limpia
+    ctx.fillStyle = '#f0f0f0';
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawBoostPickups(ctx, pickups) {
+  const now = Date.now();
+  pickups.forEach((p) => {
+    if (p.type === 'large') {
+      // ─── Pad Grande (+100) ─────────────────────────────────
+      ctx.fillStyle = p.active ? 'rgba(35, 25, 12, 0.75)' : 'rgba(20, 20, 20, 0.4)';
+      ctx.strokeStyle = p.active ? '#f59e0b' : '#444';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      if (p.active) {
+        // Halo exterior pulsante
+        const pulse = Math.sin(now * 0.006 + p.x * 0.1) * 3;
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.45)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius + 3 + pulse, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Orbe central brillante
+        const grad = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, p.radius * 0.65);
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.4, '#fbbf24');
+        grad.addColorStop(1, '#d97706');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius * 0.65, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Texto '100'
+        ctx.fillStyle = '#1a1005';
+        ctx.font = 'bold 9px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('100', p.x, p.y);
+      } else {
+        // Inactivo: arco de cuenta regresiva de respawn
+        const pct = 1 - Math.max(0, p.respawnTimer / p.respawnDelay);
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius * 0.6, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
+        ctx.stroke();
+      }
+    } else {
+      // ─── Pad Pequeño (+12) ─────────────────────────────────
+      ctx.fillStyle = p.active ? 'rgba(12, 28, 42, 0.7)' : 'rgba(20, 20, 20, 0.4)';
+      ctx.strokeStyle = p.active ? '#38bdf8' : '#333';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      if (p.active) {
+        // Rombo central luminoso
+        ctx.fillStyle = '#38bdf8';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - 6);
+        ctx.lineTo(p.x + 6, p.y);
+        ctx.lineTo(p.x, p.y + 6);
+        ctx.lineTo(p.x - 6, p.y);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const pct = 1 - Math.max(0, p.respawnTimer / p.respawnDelay);
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius * 0.6, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  });
+}
+
+function drawExhaustFlame(ctx, x, y, len, w) {
+  // Llama exterior naranja/fuego
+  ctx.fillStyle = '#ff6200';
   ctx.beginPath();
-  ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
+  ctx.moveTo(x, y - w / 2);
+  ctx.lineTo(x - len, y);
+  ctx.lineTo(x, y + w / 2);
+  ctx.closePath();
   ctx.fill();
 
-  // Borde
-  ctx.strokeStyle = '#888';
+  // Núcleo amarillo brillante
+  ctx.fillStyle = '#ffea00';
+  ctx.beginPath();
+  ctx.moveTo(x, y - w / 3);
+  ctx.lineTo(x - len * 0.65, y);
+  ctx.lineTo(x, y + w / 3);
+  ctx.closePath();
+  ctx.fill();
+
+  // Centro blanco incandescente
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(x, y - w / 5);
+  ctx.lineTo(x - len * 0.35, y);
+  ctx.lineTo(x, y + w / 5);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCar(ctx, car) {
+  const w = CAR_CONFIG.width || 28;
+  const h = CAR_CONFIG.height || 18;
+  const halfW = w / 2;
+  const halfH = h / 2;
+  const color = TEAM_COLOR[car.team] || '#888';
+  const roofColor = car.team === 'red' ? '#b83232' : '#2f6fa8';
+  const angle = car.angle || 0;
+
+  ctx.save();
+  ctx.translate(car.x, car.y);
+  ctx.rotate(angle);
+
+  // 0. Efecto de Front Flip (Rocket League 3D Pitch Illusion)
+  if (car.isFlipping) {
+    // Estelas de rotación aérea en los laterales
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, halfW + 6, -0.65, 0.65);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, halfW + 6, Math.PI - 0.65, Math.PI + 0.65);
+    ctx.stroke();
+
+    // Compresión longitudinal para dar efecto de vuelta aérea vertical
+    const flipFrac = (car.flipTime || 0) / (CAR_CONFIG.flipDuration || 360);
+    const pitchScale = Math.cos((1 - flipFrac) * Math.PI * 2);
+    ctx.scale(1, Math.max(0.25, Math.abs(pitchScale)));
+  }
+
+  // 0.5. Llamas de Boost en los dos escapes traseros
+  if (car.isBoosting) {
+    const flameLen = 15 + Math.random() * 9;
+    const flameW = 4.5;
+    drawExhaustFlame(ctx, -halfW - 2, -halfH + 4, flameLen, flameW);
+    drawExhaustFlame(ctx, -halfW - 2, halfH - 4, flameLen, flameW);
+  }
+
+  // 1. Sombra bajo el auto
+  ctx.fillStyle = 'rgba(0,0,0,0.38)';
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(-halfW + 1, -halfH + 2, w, h, 4);
+  } else {
+    ctx.rect(-halfW + 1, -halfH + 2, w, h);
+  }
+  ctx.fill();
+
+  // 2. Ruedas (4 neumáticos oscuros)
+  ctx.fillStyle = '#1e1e1e';
+  const wheelW = 7;
+  const wheelH = 3.5;
+  ctx.fillRect(halfW - wheelW - 1, -halfH - 2, wheelW, wheelH);
+  ctx.fillRect(halfW - wheelW - 1, halfH - 1.5, wheelW, wheelH);
+  ctx.fillRect(-halfW + 2, -halfH - 2, wheelW, wheelH);
+  ctx.fillRect(-halfW + 2, halfH - 1.5, wheelW, wheelH);
+
+  // 3. Carrocería principal (color del equipo)
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(-halfW, -halfH, w, h, [3, 6, 6, 3]);
+  } else {
+    ctx.rect(-halfW, -halfH, w, h);
+  }
+  ctx.fill();
+
+  // Borde nítido
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // 4. Luces delanteras (faros amarillos brillantes en el frente +X)
+  ctx.fillStyle = '#fff9a6';
+  ctx.fillRect(halfW - 2, -halfH + 2, 2.5, 3);
+  ctx.fillRect(halfW - 2, halfH - 5, 2.5, 3);
+
+  // 5. Luces traseras (rojas en la parte trasera -X)
+  ctx.fillStyle = '#ff2a2a';
+  ctx.fillRect(-halfW, -halfH + 2, 2, 3);
+  ctx.fillRect(-halfW, halfH - 5, 2, 3);
+
+  // 6. Alerón trasero
+  ctx.fillStyle = '#181818';
+  ctx.fillRect(-halfW - 2, -halfH + 1, 2.5, h - 2);
+
+  // 7. Parabrisas delantero
+  ctx.fillStyle = '#1a2634';
+  ctx.beginPath();
+  ctx.moveTo(1, -halfH + 3);
+  ctx.lineTo(halfW - 5, -halfH + 4);
+  ctx.lineTo(halfW - 5, halfH - 4);
+  ctx.lineTo(1, halfH - 3);
+  ctx.closePath();
+  ctx.fill();
+
+  // Reflejo en parabrisas
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
+  ctx.moveTo(3, -halfH + 4);
+  ctx.lineTo(halfW - 7, halfH - 5);
   ctx.stroke();
+
+  // 8. Ventana trasera
+  ctx.fillStyle = '#141d27';
+  ctx.fillRect(-halfW + 3, -halfH + 3.5, 3.5, h - 7);
+
+  // 9. Techo (cabina central)
+  ctx.fillStyle = roofColor;
+  ctx.fillRect(-halfW + 7, -halfH + 3, w - 15, h - 6);
+
+  // 10. Letra inicial del jugador en el techo
+  const initial = (car.name || '?')[0].toUpperCase();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(initial, 0, 0);
+
+  // 11. Pequeña barra de Boost sobre el auto
+  const bVal = car.boost ?? 33;
+  const barW = 24;
+  const barH = 3;
+  const bx = -barW / 2;
+  const by = -halfH - 8;
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+  ctx.fillStyle = bVal > 50 ? '#f59e0b' : bVal > 20 ? '#fbbf24' : '#ef4444';
+  ctx.fillRect(bx, by, (barW * Math.max(0, Math.min(100, bVal))) / 100, barH);
+
+  ctx.restore();
 }
+
+function drawCarHUD(ctx, car, canvasSize) {
+  const boostVal = Math.round(car.boost ?? 0);
+  const isCooldown = (car.flipCooldown ?? 0) > 0;
+  const cdSec = ((car.flipCooldown ?? 0) / 1000).toFixed(1);
+
+  const cx = canvasSize.w - 78;
+  const cy = canvasSize.h - 76;
+  const r = 46;
+
+  ctx.save();
+
+  // Fondo circular oscuro translúcido
+  ctx.fillStyle = 'rgba(14, 16, 22, 0.82)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Pista de fondo del medidor de boost (arco 270 grados)
+  const startAngle = 0.75 * Math.PI;
+  const totalSweep = 1.5 * Math.PI;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+  ctx.lineWidth = 8;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, startAngle + totalSweep);
+  ctx.stroke();
+
+  // Arco activo de boost con color según carga
+  if (boostVal > 0) {
+    const sweep = totalSweep * Math.min(1, boostVal / 100);
+    ctx.strokeStyle = boostVal > 50 ? '#f59e0b' : boostVal > 20 ? '#fbbf24' : '#ef4444';
+    ctx.shadowColor = boostVal > 50 ? '#f59e0b' : '#ef4444';
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, startAngle, startAngle + sweep);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Valor numérico de Boost en el centro
+  ctx.font = '900 32px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = '#000';
+  ctx.shadowBlur = 6;
+  ctx.fillText(`${boostVal}`, cx, cy - 6);
+
+  // Etiqueta BOOST
+  ctx.font = 'bold 10px monospace';
+  ctx.fillStyle = boostVal > 0 ? '#f59e0b' : '#888';
+  ctx.fillText('BOOST (Shift)', cx, cy + 18);
+
+  // Badge / Pastilla de FLIP a la izquierda del medidor
+  const pillW = 120;
+  const pillH = 24;
+  const pillX = cx - r - pillW - 12;
+  const pillY = cy - pillH / 2;
+
+  ctx.fillStyle = 'rgba(14, 16, 22, 0.85)';
+  ctx.strokeStyle = isCooldown ? 'rgba(239, 68, 68, 0.65)' : 'rgba(34, 197, 94, 0.8)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(pillX, pillY, pillW, pillH, 6);
+  } else {
+    ctx.rect(pillX, pillY, pillW, pillH);
+  }
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = isCooldown ? '#f87171' : '#4ade80';
+  ctx.fillText(isCooldown ? `FLIP: ${cdSec}s` : 'FLIP: LISTO (Espacio)', pillX + pillW / 2, pillY + pillH / 2);
+
+  ctx.restore();
+}
+

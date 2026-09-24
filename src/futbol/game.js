@@ -3,9 +3,10 @@
 // La física del partido corre en el cliente (FutbolGame.jsx + physics.js).
 
 export const DEFAULT_OPTIONS = {
-  matchMinutes: 3, // duración del partido: 2, 3, 5, 10
-  mapType: 'cancha3', // 'cancha3', 'cancha5', 'cancha9', 'cancha11'
-  stamina: false,     // boolean: requiere usar shift para correr
+  matchMinutes: 3,         // duración del partido: 2, 3, 5, 10
+  mapType: 'cancha3',      // 'cancha3', 'cancha5', 'cancha9', 'cancha11'
+  stamina: false,          // boolean: requiere usar shift para correr
+  vehicleMode: 'pelotas',  // 'pelotas' | 'coches'
 };
 
 export const MAX_PER_TEAM = 10;
