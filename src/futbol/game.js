@@ -4,6 +4,8 @@
 
 export const DEFAULT_OPTIONS = {
   matchMinutes: 3, // duración del partido: 2, 3, 5, 10
+  mapType: 'cancha3', // 'cancha3', 'cancha5', 'cancha9', 'cancha11'
+  stamina: false,     // boolean: requiere usar shift para correr
 };
 
 export const MAX_PER_TEAM = 10;

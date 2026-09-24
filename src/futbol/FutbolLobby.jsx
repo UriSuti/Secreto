@@ -39,33 +39,89 @@ export default function FutbolLobby({ room, me, onDispatch, onLeave, onCopyInvit
         {/* Configuración */}
         <div style={{ ...panelStyle, padding: 16, marginBottom: 20 }}>
           <div className="cs-mono" style={{ fontSize: 12, color: COLORS.gold, marginBottom: 12, letterSpacing: 0.5 }}>
-            ⚙️ CONFIGURACIÓN
+            ⚙️ CONFIGURACIÓN DEL PARTIDO
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <label className="cs-mono" style={{ fontSize: 12, color: COLORS.muted, whiteSpace: 'nowrap' }}>
-              DURACIÓN
-            </label>
-            <select
-              className="cs-input"
-              disabled={!host}
-              value={options.matchMinutes}
-              onChange={(e) => onDispatch({ type: 'setOptions', options: { matchMinutes: Number(e.target.value) } })}
-              style={{
-                padding: '8px 10px',
-                borderRadius: 4,
-                border: `1px solid ${COLORS.panelBorder}`,
-                background: COLORS.panelSoft,
-                color: COLORS.cream,
-                fontSize: 14,
-              }}
-            >
-              <option value={2}>2 minutos</option>
-              <option value={3}>3 minutos</option>
-              <option value={5}>5 minutos</option>
-              <option value={10}>10 minutos</option>
-            </select>
-            {!host && <span style={{ fontSize: 12, color: COLORS.dim }}>Solo el anfitrión puede cambiar opciones.</span>}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
+            {/* Duración */}
+            <div>
+              <label className="cs-mono" style={{ fontSize: 11, color: COLORS.muted, display: 'block', marginBottom: 4 }}>
+                DURACIÓN
+              </label>
+              <select
+                className="cs-input"
+                disabled={!host}
+                value={options.matchMinutes}
+                onChange={(e) => onDispatch({ type: 'setOptions', options: { matchMinutes: Number(e.target.value) } })}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: 4,
+                  border: `1px solid ${COLORS.panelBorder}`,
+                  background: COLORS.panelSoft,
+                  color: COLORS.cream,
+                  fontSize: 13,
+                }}
+              >
+                <option value={2}>2 minutos</option>
+                <option value={3}>3 minutos</option>
+                <option value={5}>5 minutos</option>
+                <option value={10}>10 minutos</option>
+              </select>
+            </div>
+
+            {/* Mapa / Cancha */}
+            <div>
+              <label className="cs-mono" style={{ fontSize: 11, color: COLORS.muted, display: 'block', marginBottom: 4 }}>
+                TAMAÑO DE CANCHA
+              </label>
+              <select
+                className="cs-input"
+                disabled={!host}
+                value={options.mapType || 'cancha3'}
+                onChange={(e) => onDispatch({ type: 'setOptions', options: { mapType: e.target.value } })}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: 4,
+                  border: `1px solid ${COLORS.panelBorder}`,
+                  background: COLORS.panelSoft,
+                  color: COLORS.cream,
+                  fontSize: 13,
+                }}
+              >
+                <option value="cancha3">Cancha de 3 (Pequeña)</option>
+                <option value="cancha5">Cancha de 5 (Chica)</option>
+                <option value="cancha9">Cancha de 9 (Grande)</option>
+                <option value="cancha11">Cancha de 11 (Muy grande)</option>
+              </select>
+            </div>
+
+            {/* Estámina */}
+            <div>
+              <label className="cs-mono" style={{ fontSize: 11, color: COLORS.muted, display: 'block', marginBottom: 4 }}>
+                ESTÁMINA (SHIFT)
+              </label>
+              <select
+                className="cs-input"
+                disabled={!host}
+                value={options.stamina ? 'true' : 'false'}
+                onChange={(e) => onDispatch({ type: 'setOptions', options: { stamina: e.target.value === 'true' } })}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  borderRadius: 4,
+                  border: `1px solid ${COLORS.panelBorder}`,
+                  background: COLORS.panelSoft,
+                  color: COLORS.cream,
+                  fontSize: 13,
+                }}
+              >
+                <option value="false">Desactivada (Sin barra)</option>
+                <option value="true">Activada (Barra + Shift)</option>
+              </select>
+            </div>
           </div>
+          {!host && <div style={{ fontSize: 12, color: COLORS.dim, marginTop: 10 }}>Solo el anfitrión puede cambiar las opciones.</div>}
         </div>
 
         {/* Equipos */}

@@ -34,4 +34,16 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST - 0.3.1 = Fútbol: Aumento sustancial de velocidad y aceleración de jugadores, menú de opciones con ESC (sin pausar el partido), y controles WASD + Espacio asignados al jugador propio por cliente.
+0.3.1 = Fútbol: Aumento sustancial de velocidad y aceleración de jugadores, menú de opciones con ESC (sin pausar el partido), y controles WASD + Espacio asignados al jugador propio por cliente.
+
+--------------------------------------------------------------------------------------------------------------------
+
+0.3.2 = Fútbol: Reducción de potencia y velocidad de la pelota, desaceleración natural en césped, jugador ligeramente más lento, resolución de colisión entre 2 jugadores aprisionando la pelota y orden de renderizado corregido (pelota por debajo del jugador).
+
+--------------------------------------------------------------------------------------------------------------------
+
+0.3.3 = Fútbol: Corrección en el kick. El kick únicamente se aplica al hacer contacto sprite a sprite con la pelota (sin patear a distancia). El efecto de kick finaliza de inmediato al hacer contacto directo con la pelota o al soltar la tecla Espacio.
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST - 0.4.0 = Fútbol: Eliminado el círculo negro decorativo de la pelota. Selección de mapas en las opciones del lobby (Canchas de 3, 5, 9 y 11 con dimensiones y arcos proporcionales). Opción de estámina (Shift para correr a velocidad normal consumiendo barra, caminar a 50% de velocidad sin Shift, y recarga automática tras 2s de descanso).

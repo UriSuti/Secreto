@@ -126,6 +126,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         if ((e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') && !inp.left) { inp.left = true; changed = true; }
         if ((e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') && !inp.right) { inp.right = true; changed = true; }
         if ((e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') && !inp.kick) { inp.kick = true; changed = true; }
+        if (e.key === 'Shift' && !inp.shift) { inp.shift = true; changed = true; }
         if (changed) syncMyInput(inp);
       }
     }
@@ -140,6 +141,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') { inp.left = false; changed = true; }
         if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') { inp.right = false; changed = true; }
         if (e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') { inp.kick = false; changed = true; }
+        if (e.key === 'Shift') { inp.shift = false; changed = true; }
         if (changed) syncMyInput(inp);
       }
     }
@@ -154,7 +156,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
   // ─── Game loop ────────────────────────────────────────────────────────
   useEffect(() => {
-    stateRef.current = createGameState(players);
+    stateRef.current = createGameState(players, room.options);
     timeLeftRef.current = room.options.matchMinutes * 60 * 1000;
     goalCooldownRef.current = 0;
     countdownRef.current = 2000; // 2 segundos iniciales
@@ -250,6 +252,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
     function renderScene(ctx, state, overlayMessage) {
       ctx.clearRect(0, 0, canvasSize.w, canvasSize.h);
 
+      const field = state.field || FIELD;
       // Calcular zoom de la cámara para que el seguimiento suave sea inmersivo
       const baseZoom = Math.max(0.8, Math.min(canvasSize.w / 900, canvasSize.h / 580));
       const zoom = baseZoom * 1.15; // Ligero zoom para que la cámara siga al jugador naturalmente
@@ -258,10 +261,10 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       const viewW = canvasSize.w / zoom;
       const viewH = canvasSize.h / zoom;
       const pad = 60;
-      const minX = Math.min(viewW / 2, FIELD.width / 2);
-      const maxX = Math.max(viewW / 2, FIELD.width - viewW / 2);
-      const minY = Math.min(viewH / 2, FIELD.height / 2);
-      const maxY = Math.max(viewH / 2, FIELD.height - viewH / 2);
+      const minX = Math.min(viewW / 2, field.width / 2);
+      const maxX = Math.max(viewW / 2, field.width - viewW / 2);
+      const minY = Math.min(viewH / 2, field.height / 2);
+      const maxY = Math.max(viewH / 2, field.height - viewH / 2);
 
       const cx = Math.max(minX - pad, Math.min(maxX + pad, camRef.current.x));
       const cy = Math.max(minY - pad, Math.min(maxY + pad, camRef.current.y));
@@ -272,13 +275,12 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       ctx.translate(-cx, -cy);
 
       // Dibujar mundo
-      drawField(ctx);
-      drawGoals(ctx);
-      Object.values(state.players).forEach((p) => {
-        const inp = inputsRef.current[p.id];
-        drawPlayer(ctx, p, inp?.kick);
-      });
+      drawField(ctx, field);
+      drawGoals(ctx, field);
       drawBall(ctx, state.ball);
+      Object.values(state.players).forEach((p) => {
+        drawPlayer(ctx, p, state.options?.stamina);
+      });
 
       ctx.restore();
 
@@ -367,7 +369,10 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
       {/* Indicador de controles */}
       <div style={{ color: '#888', fontSize: 13, fontFamily: 'monospace', marginTop: 10 }}>
-        Controles: <b>WASD</b> para moverte &nbsp;·&nbsp; <b>Espacio</b> para patear &nbsp;·&nbsp; <b>ESC</b> menú
+        Controles: <b>WASD</b> moverte &nbsp;·&nbsp;
+        {room.options.stamina && <><b>Shift</b> correr (estámina) &nbsp;·&nbsp;</>}
+        <b>Espacio</b> patear &nbsp;·&nbsp;
+        <b>ESC</b> menú
       </div>
 
       {/* Menú de opciones (ESC) - No pausa el partido */}
@@ -488,9 +493,10 @@ function formatTime(ms) {
 }
 
 // ─── Funciones de dibujo ───────────────────────────────────────────────────
-function drawField(ctx) {
-  const w = FIELD.width;
-  const h = FIELD.height;
+// ─── Funciones de dibujo ───────────────────────────────────────────────────
+function drawField(ctx, field = FIELD) {
+  const w = field.width;
+  const h = field.height;
 
   // Fondo de césped con rayas
   ctx.fillStyle = GRASS_COLOR;
@@ -503,7 +509,7 @@ function drawField(ctx) {
     ctx.fillRect(x, 0, stripeW, h);
   }
 
-  const wt = FIELD.wallThickness;
+  const wt = field.wallThickness;
 
   // Paredes exteriores
   ctx.fillStyle = '#224a2b';
@@ -540,23 +546,23 @@ function drawField(ctx) {
 
   // Áreas de gol
   const areaW = 120;
-  const areaH = GOAL.height + 80;
+  const areaH = field.goalHeight + 80;
   // Área izquierda
   ctx.strokeRect(wt, cy - areaH / 2, areaW, areaH);
   // Área derecha
   ctx.strokeRect(w - wt - areaW, cy - areaH / 2, areaW, areaH);
 }
 
-function drawGoals(ctx) {
-  const w = FIELD.width;
-  const cy = FIELD.height / 2;
-  const wt = FIELD.wallThickness;
-  const goalHalf = GOAL.height / 2;
-  const goalDepth = 28;
+function drawGoals(ctx, field = FIELD) {
+  const w = field.width;
+  const cy = field.height / 2;
+  const wt = field.wallThickness;
+  const goalHalf = field.goalHeight / 2;
+  const goalDepth = field.goalDepth || 28;
 
   // Arco izquierdo (el equipo ROJO defiende este arco)
   ctx.fillStyle = 'rgba(224, 80, 80, 0.18)';
-  ctx.fillRect(0, cy - goalHalf, wt + goalDepth, GOAL.height);
+  ctx.fillRect(0, cy - goalHalf, wt + goalDepth, field.goalHeight);
   ctx.strokeStyle = TEAM_COLOR.red;
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -577,7 +583,7 @@ function drawGoals(ctx) {
 
   // Arco derecho (el equipo AZUL defiende este arco)
   ctx.fillStyle = 'rgba(74, 144, 217, 0.18)';
-  ctx.fillRect(w - wt - goalDepth, cy - goalHalf, wt + goalDepth, GOAL.height);
+  ctx.fillRect(w - wt - goalDepth, cy - goalHalf, wt + goalDepth, field.goalHeight);
   ctx.strokeStyle = TEAM_COLOR.blue;
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -597,7 +603,7 @@ function drawGoals(ctx) {
   ctx.fill();
 }
 
-function drawPlayer(ctx, player, isKicking) {
+function drawPlayer(ctx, player, showStaminaBar = false) {
   const color = TEAM_COLOR[player.team] || '#888';
   const r = PLAYER_CONFIG.radius;
 
@@ -607,8 +613,8 @@ function drawPlayer(ctx, player, isKicking) {
   ctx.ellipse(player.x + 2, player.y + 4, r, r * 0.6, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Efecto kick (anillo blanco alrededor del jugador cuando patea)
-  if (isKicking || (player.kickCooldown > 300)) {
+  // Efecto kick (anillo blanco alrededor del jugador cuando el kick está activo)
+  if (player.isKicking) {
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -634,6 +640,21 @@ function drawPlayer(ctx, player, isKicking) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(initial, player.x, player.y);
+
+  // Barra de estámina
+  if (showStaminaBar) {
+    const st = player.stamina ?? 100;
+    const barW = 28;
+    const barH = 4;
+    const bx = player.x - barW / 2;
+    const by = player.y + r + 6;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+
+    ctx.fillStyle = st > 50 ? '#4cd964' : st > 20 ? '#ffcc00' : '#ff3b30';
+    ctx.fillRect(bx, by, (barW * Math.max(0, Math.min(100, st))) / 100, barH);
+  }
 }
 
 function drawBall(ctx, ball) {
@@ -645,16 +666,10 @@ function drawBall(ctx, ball) {
   ctx.ellipse(ball.x + 2, ball.y + 3, r, r * 0.6, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Pelota blanca
+  // Pelota blanca limpia (sin círculo negro)
   ctx.fillStyle = '#f0f0f0';
   ctx.beginPath();
   ctx.arc(ball.x, ball.y, r, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Hexágono negro decorativo (estilo pelota de fútbol)
-  ctx.fillStyle = '#222';
-  ctx.beginPath();
-  ctx.arc(ball.x, ball.y, r * 0.4, 0, Math.PI * 2);
   ctx.fill();
 
   // Borde

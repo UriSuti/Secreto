@@ -63,3 +63,90 @@ test('Fútbol Física: colisión y movimiento básico', () => {
   assert.ok(nextState.players.p1.vx > 0);
   assert.ok(nextState.players.p1.x > state.players.p1.x);
 });
+
+test('Fútbol Física: el kick requiere contacto con la pelota y termina al hacer contacto o soltar espacio', () => {
+  const players = [{ id: 'p1', name: 'Messi', team: 'red' }];
+  let state = createGameState(players);
+  // Posicionar lejos de la pelota
+  state.players.p1.x = state.ball.x - 100;
+  state.players.p1.y = state.ball.y;
+
+  // 1. Apretar espacio estando lejos -> isKicking = true (busca contacto), pero NO patea la pelota a distancia
+  let result = stepPhysics(state, { p1: { kick: true } }, 50);
+  state = result.nextState;
+
+  assert.equal(state.players.p1.isKicking, true);
+  assert.equal(state.ball.vx, 0); // No pateó a distancia
+
+  // 2. Soltar espacio antes de tocar la pelota -> isKicking se vuelve false inmediatamente
+  result = stepPhysics(state, { p1: { kick: false } }, 50);
+  state = result.nextState;
+  assert.equal(state.players.p1.isKicking, false);
+
+  // 3. Acercar al jugador a la pelota (contacto sprite a sprite, dist <= 29) y apretar espacio
+  state.players.p1.x = state.ball.x - 25; // tocando la pelota (16 + 11 = 27 min dist)
+  result = stepPhysics(state, { p1: { kick: true } }, 50);
+  state = result.nextState;
+
+  // Debe haber pateado la pelota
+  assert.ok(Math.abs(state.ball.vx) > 0);
+  // Y el efecto de kick debe haber terminado inmediatamente al hacer contacto
+  assert.equal(state.players.p1.isKicking, false);
+});
+
+test('Fútbol Física: 2 jugadores comprimiendo la pelota la desplazan correctamente', () => {
+  const players = [
+    { id: 'p1', name: 'Rojo', team: 'red' },
+    { id: 'p2', name: 'Azul', team: 'blue' },
+  ];
+  let state = createGameState(players);
+  const cx = FIELD.width / 2;
+  const cy = FIELD.height / 2;
+
+  // Posicionar p1 a la izquierda y p2 a la derecha aprisionando a la pelota
+  state.players.p1.x = cx - 25;
+  state.players.p1.y = cy;
+  state.players.p2.x = cx + 25;
+  state.players.p2.y = cy;
+  state.ball.x = cx;
+  state.ball.y = cy;
+
+  // Ambos empujan hacia adentro
+  const inputs = {
+    p1: { right: true },
+    p2: { left: true },
+  };
+
+  const { nextState } = stepPhysics(state, inputs, 50);
+
+  // La distancia entre la pelota y los centros de ambos jugadores debe respetar las dimensiones físicas
+  const distP1 = Math.hypot(nextState.ball.x - nextState.players.p1.x, nextState.ball.y - nextState.players.p1.y);
+  const distP2 = Math.hypot(nextState.ball.x - nextState.players.p2.x, nextState.ball.y - nextState.players.p2.y);
+
+  assert.ok(distP1 >= 25, `Distancia p1 pelota (${distP1}) debe ser adecuada`);
+  assert.ok(distP2 >= 25, `Distancia p2 pelota (${distP2}) debe ser adecuada`);
+});
+
+test('Fútbol Física: mapas seleccionables', () => {
+  const players = [{ id: 'p1', name: 'Messi', team: 'red' }];
+  const stateCancha11 = createGameState(players, { mapType: 'cancha11' });
+  assert.equal(stateCancha11.field.width, 2300);
+  assert.equal(stateCancha11.field.height, 1450);
+});
+
+test('Fútbol Física: sistema de estámina', () => {
+  const players = [{ id: 'p1', name: 'Messi', team: 'red' }];
+  let state = createGameState(players, { stamina: true });
+  assert.equal(state.players.p1.stamina, 100);
+
+  // Moverse sin shift -> velocidad al 50% (caminar), no consume estámina
+  let res = stepPhysics(state, { p1: { right: true, shift: false } }, 1000);
+  assert.equal(res.nextState.players.p1.stamina, 100);
+  const walkVx = res.nextState.players.p1.vx;
+
+  // Moverse con shift -> velocidad normal (correr), consume estámina
+  res = stepPhysics(state, { p1: { right: true, shift: true } }, 1000);
+  assert.ok(res.nextState.players.p1.stamina < 100);
+  const sprintVx = res.nextState.players.p1.vx;
+  assert.ok(sprintVx > walkVx, 'Velocidad al correr debe ser mayor que al caminar');
+});
