@@ -14,6 +14,7 @@ import Options from './codigo-secreto/Options.jsx';
 import Chat from './codigo-secreto/Chat.jsx';
 import Rules from './codigo-secreto/Rules.jsx';
 import Players from './codigo-secreto/Players.jsx';
+import { LobbyLayout, LobbyTeamCard, TeamRoleSlot, LobbyActionSection } from './lobby/index.js';
 import CafeOTeApp from './cafeote/CafeOTeApp.jsx';
 import FutbolApp from './futbol/FutbolApp.jsx';
 import MainMenu from './MainMenu.jsx';
@@ -397,123 +398,80 @@ export default function App() {
     const hasRole = Boolean(me?.team && me?.role);
     const isReady = Boolean(me?.ready);
 
-    const renderTeam = (team) => (
-      <div key={team} style={{ ...panelStyle, flex: '1 1 230px', padding: 18, borderTop: `3px solid ${TEAM_TEXT[team]}` }}>
-        <div className="cs-mono" style={{ color: TEAM_TEXT[team], fontSize: 14.5, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>{TEAM_ICON[team]}</span> <span>Equipo {TEAM_LABEL[team]}</span>
-        </div>
-        {['spymaster', 'operative'].map((role) => {
-          const members = room.players.filter((p) => p.team === team && p.role === role);
-          const mine = me && me.team === team && me.role === role;
-          const taken = role === 'spymaster' && members.length > 0 && !mine;
-          const [bg, fg] = TEAM_BUTTON[team];
-          return (
-            <div key={role} style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span>{role === 'spymaster' ? '👑' : '🕵️'}</span>
-                <span>{role === 'spymaster' ? 'Espía (líder)' : 'Agentes (miembros)'}</span>
-              </div>
-              {members.map((p) => (
-                <div key={p.id} style={{ fontSize: 13.5, padding: '4px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: COLORS.cream, fontWeight: p.id === session.playerId ? 700 : 500 }}>
-                    {p.name}{p.id === session.playerId ? ' (vos)' : ''}{room.hostId === p.id ? ' ★' : ''}
-                  </span>
-                  {p.ready
-                    ? <span className="cs-badge-ready">✓ Listo</span>
-                    : <span className="cs-badge-waiting">Esperando</span>}
-                </div>
-              ))}
-              <button
-                type="button"
-                className="cs-btn"
-                data-pick={`${team}-${role}`}
-                disabled={!me || taken}
-                onClick={() => dispatch({ type: 'pickRole', team, role })}
-                style={{ marginTop: 6, fontSize: 12, padding: '6px 12px', borderRadius: 4, background: bg, color: fg, opacity: mine ? 1 : 0.65, fontWeight: mine ? 700 : 400 }}
-              >
-                {mine ? '✓ Elegido' : taken ? 'Ocupado' : 'Elegir'}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    );
-
     return (
-      <div className="cs-root" style={{ background: TEAM_BG.lobby, padding: '32px 16px 32px' }}>
-        <div style={{ maxWidth: 840, margin: '0 auto' }}>
-          {banners}
-          <div style={{ textAlign: 'center', marginBottom: 26 }}>
-            <div className="cs-mono" style={{ fontSize: 12, color: COLORS.gold, textTransform: 'uppercase', letterSpacing: 1 }}>sala de espera</div>
-            <div className="cs-mono" style={{ fontSize: 44, letterSpacing: 8, color: COLORS.cream, margin: '6px 0' }}>{session.code}</div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button type="button" className="cs-btn" onClick={copyInvite} style={ghostButton}>
-                {copied ? '¡Link copiado!' : 'Copiar link de invitación'}
-              </button>
-              <button type="button" className="cs-btn" onClick={handleLeave} style={{ ...ghostButton, color: COLORS.muted }}>Salir</button>
-            </div>
-            <p style={{ color: COLORS.muted, fontSize: 13, marginTop: 10 }}>
-              Compartí el código o el link para que se unan tus amigos.
-              {host ? ' Sos el anfitrión: los modificadores son tuyos.' : ''}
-            </p>
-          </div>
-
-          {unassigned.length > 0 && (
-            <div style={{ marginBottom: 16, fontSize: 13, color: COLORS.muted, textAlign: 'center' }}>
-              Sin equipo: {unassigned.map((p) => p.name).join(', ')}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 24 }}>
-            {room.teams.map(renderTeam)}
-          </div>
-
-          <Options
-            options={room.options}
-            canEdit={host}
-            onChange={(patch) => dispatch({ type: 'setOptions', options: patch })}
-          />
-
-          <div style={{ textAlign: 'center', marginTop: 16, marginBottom: 20 }}>
-            <button
-              type="button"
-              className="cs-btn"
-              disabled={!me || !hasRole}
-              onClick={() => dispatch({ type: 'toggleReady' })}
-              style={{
-                padding: isReady ? '13px 32px' : '14px 40px',
-                borderRadius: 6,
-                background: !hasRole ? COLORS.panelSoft : isReady ? COLORS.green : COLORS.gold,
-                color: !hasRole ? COLORS.dim : isReady ? COLORS.greenText : COLORS.ink,
-                fontWeight: 700,
-                fontSize: 16,
-                boxShadow: hasRole ? (isReady ? '0 4px 16px rgba(79,125,70,0.4)' : '0 4px 16px rgba(179,137,58,0.35)') : 'none',
-              }}
+      <LobbyLayout
+        code={session.code}
+        gameTitle="sala de espera"
+        subtitle={`Compartí el código o el link para que se unan tus amigos.${host ? ' Sos el anfitrión: los modificadores son tuyos.' : ''}`}
+        copied={copied}
+        onCopyInvite={copyInvite}
+        onLeave={handleLeave}
+        leaveText="Salir"
+        banners={banners}
+        unassignedPlayers={unassigned}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 24 }}>
+          {room.teams.map((team) => (
+            <LobbyTeamCard
+              key={team}
+              team={team}
+              title={`Equipo ${TEAM_LABEL[team]}`}
+              icon={TEAM_ICON[team]}
+              color={TEAM_TEXT[team]}
             >
-              {!hasRole
-                ? 'Elegí equipo y rol para prepararte'
-                : isReady
-                  ? '✓ ¡Estás listo! (Tocar para cancelar)'
-                  : '¡Ponerte Listo!'}
-            </button>
-
-            <div style={{ marginTop: 14 }}>
-              <div className="cs-mono" style={{ fontSize: 16, fontWeight: 700, color: readyPlayers === totalPlayers && totalPlayers >= 2 ? COLORS.greenLight : COLORS.cream }}>
-                ({readyPlayers}/{totalPlayers}) listos
-              </div>
-              <div style={{ fontSize: 12.5, color: COLORS.muted, marginTop: 4 }}>
-                {readyPlayers === totalPlayers && totalPlayers >= 2
-                  ? (problems.length > 0 ? 'Faltan roles requeridos para iniciar' : '¡Todos listos! Iniciando partida…')
-                  : 'Todos los jugadores deben poner listo para que inicie la partida.'}
-              </div>
-            </div>
-
-            {problems.map((p) => (
-              <p key={p} style={{ color: COLORS.error, fontSize: 12.5, margin: '8px 0 0' }}>⚠️ {p}</p>
-            ))}
-          </div>
+              {['spymaster', 'operative'].map((role) => {
+                const members = room.players.filter((p) => p.team === team && p.role === role);
+                const mine = me && me.team === team && me.role === role;
+                const taken = role === 'spymaster' && members.length > 0 && !mine;
+                return (
+                  <TeamRoleSlot
+                    key={role}
+                    icon={role === 'spymaster' ? '👑' : '🕵️'}
+                    label={role === 'spymaster' ? 'Espía (líder)' : 'Agentes (miembros)'}
+                    members={members}
+                    myPlayerId={session.playerId}
+                    hostId={room.hostId}
+                    canPick={Boolean(me)}
+                    isMine={mine}
+                    isTaken={taken}
+                    onPick={() => dispatch({ type: 'pickRole', team, role })}
+                    buttonColors={TEAM_BUTTON[team]}
+                    dataPick={`${team}-${role}`}
+                    showReadyBadge={true}
+                  />
+                );
+              })}
+            </LobbyTeamCard>
+          ))}
         </div>
-      </div>
+
+        <Options
+          options={room.options}
+          canEdit={host}
+          onChange={(patch) => dispatch({ type: 'setOptions', options: patch })}
+        />
+
+        <LobbyActionSection
+          buttonText={
+            !hasRole
+              ? 'Elegí equipo y rol para prepararte'
+              : isReady
+                ? '✓ ¡Estás listo! (Tocar para cancelar)'
+                : '¡Ponerte Listo!'
+          }
+          disabled={!me || !hasRole}
+          onClick={() => dispatch({ type: 'toggleReady' })}
+          variant={!hasRole ? 'soft' : isReady ? 'green' : 'gold'}
+          counterText={`(${readyPlayers}/${totalPlayers}) listos`}
+          counterColor={readyPlayers === totalPlayers && totalPlayers >= 2 ? COLORS.greenLight : COLORS.cream}
+          statusHint={
+            readyPlayers === totalPlayers && totalPlayers >= 2
+              ? (problems.length > 0 ? 'Faltan roles requeridos para iniciar' : '¡Todos listos! Iniciando partida…')
+              : 'Todos los jugadores deben poner listo para que inicie la partida.'
+          }
+          problems={problems}
+        />
+      </LobbyLayout>
     );
   }
 

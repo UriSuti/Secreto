@@ -215,7 +215,7 @@ export function stepPhysics(state, inputs, dt) {
       if (!player.kickHeld) {
         player.kickHeld = true;
         player.isKicking = true;
-        player.kickHoldTime = 0;
+        player.kickHoldTime = s;
         player.hasHitBallThisPress = false;
       } else {
         if (!player.hasHitBallThisPress) {

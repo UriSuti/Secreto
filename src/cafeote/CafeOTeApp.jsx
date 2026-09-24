@@ -258,6 +258,7 @@ export default function CafeOTeApp({ onBackToMenu }) {
     return (
       <CafeOTeLobby
         room={room}
+        code={session?.code}
         me={me}
         onDispatch={dispatch}
         onLeave={handleLeave}

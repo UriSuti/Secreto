@@ -52,6 +52,8 @@
 
 0.4.1 = Fútbol: Estado de KICK retenido sin pelota (con movimiento 25% más lento). Fuerza del pateo dinámica (777 de potencia máxima al toque o conducción instantánea decayendo a 420 tras 5s de carga continua). Desactivación del kick al colisionar con la pelota. Agregado control de Zoom hacia el jugador usando la rueda del mouse y teclas Q / E.
 
+0.4.2 = Fútbol: Laterales abiertos — zonas caminables fuera de los bordes superior e inferior de la cancha donde los jugadores pueden moverse libremente pero la pelota no puede salir. Terreno oscuro con línea punteada marca el límite del mundo.
+
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST - 0.4.2 = Fútbol: Laterales abiertos — zonas caminables fuera de los bordes superior e inferior de la cancha donde los jugadores pueden moverse libremente pero la pelota no puede salir. Terreno oscuro con línea punteada marca el límite del mundo.
+LATEST - 0.5.0 = Unificación visual y arquitectónica de los lobbys: Creación de componentes modulares compartidos en src/lobby (LobbyLayout, LobbyOptions, Segmented, OptionField, LobbyTeamCard, TeamRoleSlot, TeamRoster, LobbyActionSection). Todos los juegos actuales (Código Secreto, Café o Té, Fútbol) y los que se incorporen a futuro adoptan el diseño de lobby de Código Secreto para una experiencia consistente en toda la plataforma. Corregida la acumulación inicial de kickHoldTime en la física de fútbol.

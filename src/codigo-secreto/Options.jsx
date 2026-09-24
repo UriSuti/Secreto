@@ -1,49 +1,6 @@
 import React from 'react';
 import { BOMB_CHOICES, GRID_COLS, TIMER_CHOICES, neutralCount } from './game.js';
-import { COLORS, panelStyle } from '../theme.js';
-
-function Segmented({ name, value, choices, onChange, disabled }) {
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-      {choices.map((c) => {
-        const active = c.value === value;
-        return (
-          <button
-            key={String(c.value)}
-            type="button"
-            className="cs-btn"
-            data-opt={`${name}-${c.value}`}
-            disabled={disabled}
-            aria-pressed={active}
-            onClick={() => onChange(c.value)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 4,
-              fontSize: 13,
-              background: active ? COLORS.gold : COLORS.panelSoft,
-              color: active ? COLORS.ink : COLORS.cream,
-              border: `1px solid ${active ? COLORS.gold : COLORS.panelBorder}`,
-              fontWeight: active ? 700 : 400,
-              opacity: disabled && !active ? 0.4 : 1,
-            }}
-          >
-            {c.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function Field({ title, hint, children }) {
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 13, color: COLORS.cream, marginBottom: 6 }}>{title}</div>
-      {children}
-      {hint && <div style={{ fontSize: 11, color: COLORS.dim, marginTop: 5 }}>{hint}</div>}
-    </div>
-  );
-}
+import LobbyOptions, { Segmented, OptionField as Field } from '../lobby/LobbyOptions.jsx';
 
 const minuteChoices = TIMER_CHOICES.map((m) => ({ value: m, label: m === 0 ? 'Sin límite' : `${m} min` }));
 const yesNo = (yes, no) => [{ value: true, label: yes }, { value: false, label: no }];
@@ -56,13 +13,7 @@ export default function Options({ options, canEdit, onChange }) {
   const deferredHint = 'No aplica con «Al terminar el turno»: ahí todas las elegidas se destapan juntas y el turno termina.';
 
   return (
-    <div style={{ ...panelStyle, padding: 18, marginBottom: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <div className="cs-mono" style={{ fontSize: 13, color: COLORS.gold }}>modificadores de la partida</div>
-        <div style={{ fontSize: 11, color: COLORS.dim }}>
-          {canEdit ? 'Solo vos, como anfitrión, podés cambiarlos.' : 'Los cambia el anfitrión de la sala.'}
-        </div>
-      </div>
+    <LobbyOptions canEdit={canEdit}>
 
       <Field
         title="Equipos en total"
@@ -154,6 +105,6 @@ export default function Options({ options, canEdit, onChange }) {
           choices={yesNo('Al instante', 'Al terminar el turno')}
         />
       </Field>
-    </div>
+    </LobbyOptions>
   );
 }

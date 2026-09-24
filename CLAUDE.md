@@ -171,6 +171,8 @@ por una versión anterior siga abriéndose sin romper.
 | `src/codigo-secreto/words.js` | 980 palabras únicas del pozo |
 | `src/menu/MainMenu.jsx` `src/menu/Credits.jsx` | Menú principal de selección de juegos y créditos |
 | `src/cafeote/` | Componentes y lógica del juego Café o Té |
+| `src/futbol/` | Componentes, física y lógica del juego Fútbol 2D |
+| `src/lobby/` | Componentes unificados y reutilizables para las salas de espera de todos los juegos |
 | `src/App.jsx` | Pantalla principal, enrutador de juegos y estado local |
 | `src/codigo-secreto/Options.jsx` `Chat.jsx` `Rules.jsx` `Players.jsx` | Paneles de la interfaz de Código Secreto |
 | `src/theme.js` | Colores y estilos compartidos |

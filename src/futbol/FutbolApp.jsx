@@ -269,6 +269,7 @@ export default function FutbolApp({ onBackToMenu }) {
     return (
       <FutbolLobby
         room={room}
+        code={session?.code}
         me={me}
         onDispatch={dispatch}
         onLeave={handleLeave}
