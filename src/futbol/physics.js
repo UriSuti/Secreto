@@ -72,10 +72,10 @@ export const PLAYER_CONFIG = {
 export const BALL_CONFIG = {
   radius: 11,
   mass: 0.45,
-  friction: 0.965,      // desaceleración en el césped (rueda menos tiempo)
+  friction: 0.980,      // desaceleración en el césped (rueda menos tiempo)
   wallRestitution: 0.60,
   playerRestitution: 0.40, // rebote al colisionar con jugador sin patear
-  maxSpeed: 1000,       // velocidad máxima de la pelota (para permitir el kick de 777)
+  maxSpeed: 550,       // velocidad máxima de la pelota (para permitir el kick de 777)
 };
 
 export const CAR_BALL_CONFIG = {

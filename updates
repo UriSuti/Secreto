@@ -80,8 +80,10 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST - 0.7.1 = Fútbol (Modo Coches): Controles de dirección estilo Rocket League y ajustes de conducción:
+0.7.1 = Fútbol (Modo Coches): Controles de dirección estilo Rocket League y ajustes de conducción:
 - Dirección de ruedas reales: presionar A o D posiciona el ángulo de las ruedas delanteras (steerAngle) en vez de hacer rotar el auto sobre su propio eje. Si el auto está detenido, presionar A/D NO hace girar el chasis.
 - Rotación dinámica al acelerar: al avanzar con W (o retroceder con S), el chasis curva progresivamente hacia donde apuntan las ruedas.
 - Flecha HUD indicadora de ruedas: se añade una flecha frontal en la punta del auto que apunta en tiempo real en la dirección exacta de las ruedas delanteras, iluminándose en amarillo al girar para saber hacia dónde irá el auto antes de acelerar. Además, los neumáticos delanteros giran físicamente sobre el sprite del auto.
 - Conducción optimizada: desaceleración post-boost más ágil, impulso de arranque de turbo inmediato, toquecitos dinámicos al llevar la pelota sin frenar al vehículo y pelota con rodamiento fluido y natural.
+
+LATEST - 0.7.2 = Arreglos fisica de pelota
