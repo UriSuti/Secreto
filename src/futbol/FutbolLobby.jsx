@@ -93,57 +93,152 @@ export default function FutbolLobby({ room, code, me, onDispatch, onLeave, onCop
           />
         </OptionField>
 
+        {/* Condiciones de partido: minutos y goles para ganar */}
         <OptionField
-          title="Duración del partido"
-          hint="Tiempo reglamentario de juego. El reloj corre mientras la pelota está en juego."
+          title="Condiciones del partido"
+          hint="0 significa ilimitado en ambos campos (sin límite de tiempo o sin límite de goles)."
         >
-          <Segmented
-            name="matchMinutes"
-            value={options.matchMinutes}
-            disabled={!host}
-            onChange={(val) => onDispatch({ type: 'setOptions', options: { matchMinutes: val } })}
-            choices={[
-              { value: 2, label: '2 minutos' },
-              { value: 3, label: '3 minutos' },
-              { value: 5, label: '5 minutos' },
-              { value: 10, label: '10 minutos' },
-            ]}
-          />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
+            <div>
+              <label style={{ display: 'block', color: '#bbb', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                ⏱️ Minutos de partido (0 = ilimitado)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="60"
+                disabled={!host}
+                value={options.matchMinutes ?? 0}
+                onChange={(e) => {
+                  const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                  onDispatch({ type: 'setOptions', options: { matchMinutes: val } });
+                }}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  background: '#1e1e1e',
+                  border: '1px solid #3a3a3a',
+                  borderRadius: 6,
+                  color: '#fff',
+                  padding: '9px 12px',
+                  fontSize: 14,
+                  fontFamily: 'monospace',
+                  outline: 'none',
+                }}
+              />
+              <span style={{ display: 'block', color: '#777', fontSize: 11, marginTop: 4 }}>
+                {(options.matchMinutes ?? 0) === 0 ? 'Tiempo ilimitado' : `${options.matchMinutes} min reglamentarios`}
+              </span>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', color: '#bbb', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                🎯 Goles para ganar (0 = ilimitado)
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="99"
+                disabled={!host}
+                value={options.goalsToWin ?? 0}
+                onChange={(e) => {
+                  const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                  onDispatch({ type: 'setOptions', options: { goalsToWin: val } });
+                }}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  background: '#1e1e1e',
+                  border: '1px solid #3a3a3a',
+                  borderRadius: 6,
+                  color: '#fff',
+                  padding: '9px 12px',
+                  fontSize: 14,
+                  fontFamily: 'monospace',
+                  outline: 'none',
+                }}
+              />
+              <span style={{ display: 'block', color: '#777', fontSize: 11, marginTop: 4 }}>
+                {(options.goalsToWin ?? 0) === 0 ? 'Goles ilimitados' : `Gana quien marque ${options.goalsToWin}`}
+              </span>
+            </div>
+          </div>
         </OptionField>
 
-        <OptionField
-          title="Tamaño de cancha"
-          hint="Dimensiones y arcos adaptados para la cantidad de jugadores."
-        >
-          <Segmented
-            name="mapType"
-            value={options.mapType || 'cancha3'}
-            disabled={!host}
-            onChange={(val) => onDispatch({ type: 'setOptions', options: { mapType: val } })}
-            choices={[
-              { value: 'cancha3', label: 'Cancha 3 (Pequeña)' },
-              { value: 'cancha5', label: 'Cancha 5 (Chica)' },
-              { value: 'cancha9', label: 'Cancha 9 (Grande)' },
-              { value: 'cancha11', label: 'Cancha 11 (Muy grande)' },
-            ]}
-          />
-        </OptionField>
+        {/* Opciones según el modo de juego (Coches vs Pelotas) */}
+        {options.vehicleMode === 'coches' ? (
+          <>
+            <OptionField
+              title="Tamaño de cancha"
+              hint="Dimensiones adaptadas para la cantidad de autos por equipo."
+            >
+              <Segmented
+                name="mapType"
+                value={options.mapType || 'cancha3'}
+                disabled={!host}
+                onChange={(val) => onDispatch({ type: 'setOptions', options: { mapType: val } })}
+                choices={[
+                  { value: 'cancha3', label: '1v1' },
+                  { value: 'cancha5', label: '2v2' },
+                  { value: 'cancha9', label: '3v3' },
+                  { value: 'cancha11', label: '4v4' },
+                ]}
+              />
+            </OptionField>
 
-        <OptionField
-          title="Estámina (Shift para correr)"
-          hint="Con estámina, correr consume barra de energía y caminar va a velocidad normal."
-        >
-          <Segmented
-            name="stamina"
-            value={Boolean(options.stamina)}
-            disabled={!host}
-            onChange={(val) => onDispatch({ type: 'setOptions', options: { stamina: val } })}
-            choices={[
-              { value: false, label: 'Desactivada' },
-              { value: true, label: 'Activada' },
-            ]}
-          />
-        </OptionField>
+            <OptionField
+              title="Boost infinito"
+              hint="Al activarlo, el nitro nunca se agota (siempre al 100%)."
+            >
+              <Segmented
+                name="infiniteBoost"
+                value={Boolean(options.infiniteBoost)}
+                disabled={!host}
+                onChange={(val) => onDispatch({ type: 'setOptions', options: { infiniteBoost: val } })}
+                choices={[
+                  { value: false, label: 'No' },
+                  { value: true, label: 'Sí' },
+                ]}
+              />
+            </OptionField>
+          </>
+        ) : (
+          <>
+            <OptionField
+              title="Tamaño de cancha"
+              hint="Dimensiones y arcos adaptados para la cantidad de jugadores."
+            >
+              <Segmented
+                name="mapType"
+                value={options.mapType || 'cancha3'}
+                disabled={!host}
+                onChange={(val) => onDispatch({ type: 'setOptions', options: { mapType: val } })}
+                choices={[
+                  { value: 'cancha3', label: 'Cancha 3 (Pequeña)' },
+                  { value: 'cancha5', label: 'Cancha 5 (Chica)' },
+                  { value: 'cancha9', label: 'Cancha 9 (Grande)' },
+                  { value: 'cancha11', label: 'Cancha 11 (Muy grande)' },
+                ]}
+              />
+            </OptionField>
+
+            <OptionField
+              title="Estámina (Shift para correr)"
+              hint="Con estámina, correr consume barra de energía y caminar va a velocidad normal."
+            >
+              <Segmented
+                name="stamina"
+                value={Boolean(options.stamina)}
+                disabled={!host}
+                onChange={(val) => onDispatch({ type: 'setOptions', options: { stamina: val } })}
+                choices={[
+                  { value: false, label: 'Desactivada' },
+                  { value: true, label: 'Activada' },
+                ]}
+              />
+            </OptionField>
+          </>
+        )}
       </LobbyOptions>
 
       {/* Acciones */}

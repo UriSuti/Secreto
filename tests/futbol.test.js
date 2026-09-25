@@ -210,6 +210,29 @@ test('Fútbol Física: Modo Coches - cancha vertical, orientación e inercia', (
   assert.ok(state.players.p1.vy < 0, 'Sigue avanzando hacia arriba por inercia mientras curva');
 });
 
+test('Fútbol Física: Modo Coches - dirección estilo Rocket League (A/D orientan ruedas pero auto detenido no gira)', () => {
+  const players = [{ id: 'p1', name: 'Rojo', team: 'red' }];
+  let state = createGameState(players, { vehicleMode: 'coches' });
+  state.players.p1.speed = 0;
+  const initialAngle = state.players.p1.angle;
+
+  // 1. Auto detenido: presionar A (turnLeft) gira las ruedas hacia la izquierda pero el chasis NO rota
+  state = stepPhysics(state, { p1: { turnLeft: true } }, 100).nextState;
+  assert.equal(state.players.p1.angle, initialAngle, 'El auto detenido no debe rotar en el lugar');
+  assert.ok(state.players.p1.steerAngle < 0, 'Las ruedas delanteras deben apuntar a la izquierda (steerAngle < 0)');
+
+  // 2. Al soltar la tecla, las ruedas se centran hacia 0
+  state = stepPhysics(state, { p1: {} }, 100).nextState;
+  assert.ok(Math.abs(state.players.p1.steerAngle) < 0.05, 'Las ruedas deben volver al centro al soltar teclas');
+
+  // 3. Al acelerar con W teniendo las ruedas giradas a la derecha (D), el auto curva hacia la derecha
+  for (let i = 0; i < 5; i++) {
+    state = stepPhysics(state, { p1: { accelerate: true, turnRight: true } }, 50).nextState;
+  }
+  assert.ok(state.players.p1.speed > 0, 'El auto debe avanzar');
+  assert.ok(state.players.p1.angle > initialAngle, 'El chasis debe rotar a la derecha al desplazarse');
+});
+
 test('Fútbol Física: Modo Coches - frenado y marcha atrás progresiva', () => {
   const players = [{ id: 'p1', name: 'Rojo', team: 'red' }];
   let state = createGameState(players, { vehicleMode: 'coches' });

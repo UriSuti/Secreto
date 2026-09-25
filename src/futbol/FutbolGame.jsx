@@ -26,11 +26,17 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
   const rafRef = useRef(null);
   const goalCooldownRef = useRef(0);  // ms de pausa activa post gol
   const countdownRef = useRef(2000);   // cuenta regresiva inicial (2 segundos)
-  const timeLeftRef = useRef(room.options.matchMinutes * 60 * 1000);
+  const matchMinutes = Number(room.options?.matchMinutes ?? 0);
+  const isTimeUnlimited = matchMinutes <= 0;
+  const initialTimeMs = isTimeUnlimited ? 0 : matchMinutes * 60 * 1000;
+  const timeLeftRef = useRef(initialTimeMs);
+  const elapsedTimeRef = useRef(0);
   const scoreRef = useRef({ red: room.score.red, blue: room.score.blue });
   const camRef = useRef({ x: FIELD.width / 2, y: FIELD.height / 2 });
   const zoomScaleRef = useRef(1.0);
   const zoomKeysRef = useRef({ zoomIn: false, zoomOut: false });
+  const [rotateCamera, setRotateCamera] = useState(isCarMode);
+  const rotateCameraRef = useRef(isCarMode);
 
   const isHost = room.hostId === me?.id;
   const players = room.players;
@@ -73,6 +79,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
               pCli.vy = pHost.vy;
               if (pHost.angle !== undefined) {
                 pCli.angle = pHost.angle;
+                pCli.steerAngle = pHost.steerAngle;
                 pCli.speed = pHost.speed;
                 pCli.boost = pHost.boost;
                 pCli.isBoosting = pHost.isBoosting;
@@ -88,7 +95,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
   }, [code, isHost]);
 
   // Estado de render para el HUD
-  const [hudTime, setHudTime] = useState(room.options.matchMinutes * 60 * 1000);
+  const [hudTime, setHudTime] = useState(initialTimeMs);
   const [hudScore, setHudScore] = useState({ red: room.score.red, blue: room.score.blue });
   const [goalMsg, setGoalMsg] = useState(null);
   const [showMenu, setShowMenu] = useState(false);
@@ -161,6 +168,13 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
         if (e.key === 'q' || e.key === 'Q') { zoomKeysRef.current.zoomOut = true; }
         if (e.key === 'e' || e.key === 'E') { zoomKeysRef.current.zoomIn = true; }
+        if (isCarMode && (e.key === 'c' || e.key === 'C')) {
+          setRotateCamera((prev) => {
+            const next = !prev;
+            rotateCameraRef.current = next;
+            return next;
+          });
+        }
         if (changed) syncMyInput(inp);
       }
     }
@@ -204,7 +218,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
   // ─── Game loop ────────────────────────────────────────────────────────
   useEffect(() => {
     stateRef.current = createGameState(players, room.options);
-    timeLeftRef.current = room.options.matchMinutes * 60 * 1000;
+    timeLeftRef.current = initialTimeMs;
+    elapsedTimeRef.current = 0;
     goalCooldownRef.current = 0;
     countdownRef.current = 2000; // 2 segundos iniciales
     lastTimeRef.current = null;
@@ -260,9 +275,14 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       }
 
       // 3. Actualizar tiempo del partido
-      if (timeLeftRef.current > 0) {
-        timeLeftRef.current = Math.max(0, timeLeftRef.current - dt);
-        setHudTime(timeLeftRef.current);
+      if (!isTimeUnlimited) {
+        if (timeLeftRef.current > 0) {
+          timeLeftRef.current = Math.max(0, timeLeftRef.current - dt);
+          setHudTime(timeLeftRef.current);
+        }
+      } else {
+        elapsedTimeRef.current += dt;
+        setHudTime(elapsedTimeRef.current);
       }
 
       // 4. Paso de física
@@ -281,14 +301,23 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           ...scoreRef.current,
           [goal]: (scoreRef.current[goal] || 0) + 1,
         };
+        const currentGoalCount = scoreRef.current[goal];
         setHudScore({ ...scoreRef.current });
         setGoalMsg(`¡GOL DE ${TEAM_NAME[goal]}!`);
         goalCooldownRef.current = 2000;
         onGoal(goal);
+
+        // Si se configuraron goles para ganar y se alcanzó la meta
+        const goalsToWin = Number(room.options?.goalsToWin || 0);
+        if (goalsToWin > 0 && currentGoalCount >= goalsToWin) {
+          setTimeout(() => {
+            onTimeEnd();
+          }, 1800);
+        }
       }
 
-      // 6. Detectar fin de tiempo
-      if (timeLeftRef.current <= 0) {
+      // 6. Detectar fin de tiempo (solo si no es tiempo ilimitado)
+      if (!isTimeUnlimited && timeLeftRef.current <= 0) {
         updateCamera(stateRef.current, dt);
         renderScene(ctx, stateRef.current, '¡FIN DEL PARTIDO!');
         onTimeEnd();
@@ -313,40 +342,68 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       const target = (me && state.players[me.id]) || Object.values(state.players)[0] || state.ball;
       if (!target) return;
 
-      // Movimiento suave con lerp (más alto = más rápido, 0.08 es muy fluido)
-      const factor = 1 - Math.pow(0.01, dt / 1000);
-      camRef.current.x += (target.x - camRef.current.x) * factor;
-      camRef.current.y += (target.y - camRef.current.y) * factor;
+      const isRotatingCam = isCarMode && rotateCameraRef.current;
+      if (isRotatingCam) {
+        // En modo cámara rotativa nos fijamos directamente al auto para máxima estabilidad sin temblores
+        camRef.current.x = target.x;
+        camRef.current.y = target.y;
+      } else {
+        // Movimiento suave con lerp (más alto = más rápido, 0.08 es muy fluido)
+        const factor = 1 - Math.pow(0.01, dt / 1000);
+        camRef.current.x += (target.x - camRef.current.x) * factor;
+        camRef.current.y += (target.y - camRef.current.y) * factor;
+      }
     }
 
     function renderScene(ctx, state, overlayMessage) {
       ctx.clearRect(0, 0, canvasSize.w, canvasSize.h);
 
       const field = state.field || FIELD;
-      // Calcular zoom de la cámara teniendo en cuenta la orientación (vertical u horizontal)
-      const baseZoom = field.isVertical
-        ? Math.max(0.65, Math.min(canvasSize.w / 750, canvasSize.h / 1050))
-        : Math.max(0.8, Math.min(canvasSize.w / 900, canvasSize.h / 580));
+      const isRotatingCam = isCarMode && rotateCameraRef.current;
+      const myCar = (me && state.players[me.id]) || Object.values(state.players)[0];
+
+      // Calcular zoom de la cámara teniendo en cuenta la orientación y modo de cámara
+      const baseZoom = isRotatingCam
+        ? Math.max(0.72, Math.min(canvasSize.w / 720, canvasSize.h / 720))
+        : (field.isVertical
+            ? Math.max(0.65, Math.min(canvasSize.w / 750, canvasSize.h / 1050))
+            : Math.max(0.8, Math.min(canvasSize.w / 900, canvasSize.h / 580)));
       const zoom = baseZoom * 1.15 * zoomScaleRef.current;
 
-      // Clamp de la cámara para que no se salga excesivamente del campo
-      const sm = field.sideMargin || 0;
-      const viewW = canvasSize.w / zoom;
-      const viewH = canvasSize.h / zoom;
-      const pad = 60;
-      const totalW = field.width + (field.isVertical ? sm * 2 : 0);
-      const totalH = field.height + (!field.isVertical ? sm * 2 : 0);
-      const minX = Math.min(viewW / 2, totalW / 2) - (field.isVertical ? sm : 0);
-      const maxX = Math.max(viewW / 2, totalW - viewW / 2) - (field.isVertical ? sm : 0);
-      const minY = Math.min(viewH / 2, totalH / 2) - (!field.isVertical ? sm : 0);
-      const maxY = Math.max(viewH / 2, totalH - viewH / 2) - (!field.isVertical ? sm : 0);
+      let cx, cy;
+      if (isRotatingCam && myCar) {
+        cx = camRef.current.x;
+        cy = camRef.current.y;
+      } else {
+        // Clamp de la cámara para que no se salga excesivamente del campo
+        const sm = field.sideMargin || 0;
+        const viewW = canvasSize.w / zoom;
+        const viewH = canvasSize.h / zoom;
+        const pad = 60;
+        const totalW = field.width + (field.isVertical ? sm * 2 : 0);
+        const totalH = field.height + (!field.isVertical ? sm * 2 : 0);
+        const minX = Math.min(viewW / 2, totalW / 2) - (field.isVertical ? sm : 0);
+        const maxX = Math.max(viewW / 2, totalW - viewW / 2) - (field.isVertical ? sm : 0);
+        const minY = Math.min(viewH / 2, totalH / 2) - (!field.isVertical ? sm : 0);
+        const maxY = Math.max(viewH / 2, totalH - viewH / 2) - (!field.isVertical ? sm : 0);
 
-      const cx = Math.max(minX - pad, Math.min(maxX + pad, camRef.current.x));
-      const cy = Math.max(minY - pad, Math.min(maxY + pad, camRef.current.y));
+        cx = Math.max(minX - pad, Math.min(maxX + pad, camRef.current.x));
+        cy = Math.max(minY - pad, Math.min(maxY + pad, camRef.current.y));
+      }
 
       ctx.save();
-      ctx.translate(canvasSize.w / 2, canvasSize.h / 2);
+      // En cámara rotativa ubicamos el auto ligeramente debajo del centro (h * 0.58) para mayor visión frontal
+      const screenCenterX = canvasSize.w / 2;
+      const screenCenterY = isRotatingCam ? canvasSize.h * 0.58 : canvasSize.h / 2;
+      ctx.translate(screenCenterX, screenCenterY);
       ctx.scale(zoom, zoom);
+
+      if (isRotatingCam && myCar) {
+        // Rotar la escena: el auto SIEMPRE se ve yendo hacia adelante (arriba en la pantalla)
+        const carAngle = myCar.angle ?? -Math.PI / 2;
+        ctx.rotate(-Math.PI / 2 - carAngle);
+      }
+
       ctx.translate(-cx, -cy);
 
       // Dibujar mundo
@@ -366,12 +423,23 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
       ctx.restore();
 
+      // Indicador de pelota fuera de pantalla (flecha + mini pelota si el balón no se ve)
+      drawOffscreenBallIndicator(
+        ctx,
+        state.ball,
+        myCar,
+        canvasSize,
+        zoom,
+        screenCenterX,
+        screenCenterY,
+        cx,
+        cy,
+        isRotatingCam
+      );
+
       // HUD de Coches (Rocket League Boost Meter & Flip Status)
-      if (isCarMode) {
-        const myCar = (me && state.players[me.id]) || Object.values(state.players)[0];
-        if (myCar) {
-          drawCarHUD(ctx, myCar, canvasSize);
-        }
+      if (isCarMode && myCar) {
+        drawCarHUD(ctx, myCar, canvasSize);
       }
 
       // Overlay de mensaje (Cuenta regresiva o GOL)
@@ -427,12 +495,35 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           </div>
         </div>
 
-        {/* Lado Azul y Botón Menú */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* Lado Azul y Botones */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 6 }}>
             <span style={{ color: TEAM_COLOR.blue, fontWeight: 700, fontSize: 20 }}>AZUL</span>
             <div style={{ width: 14, height: 14, borderRadius: '50%', background: TEAM_COLOR.blue, boxShadow: `0 0 8px ${TEAM_COLOR.blue}` }} />
           </div>
+          {isCarMode && (
+            <button
+              type="button"
+              className="cs-btn"
+              onClick={() => setRotateCamera((prev) => {
+                const next = !prev;
+                rotateCameraRef.current = next;
+                return next;
+              })}
+              title="Presiona 'C' para alternar la cámara en cualquier momento"
+              style={{
+                ...ghostButton,
+                padding: '5px 10px',
+                fontSize: 12,
+                fontFamily: 'monospace',
+                cursor: 'pointer',
+                borderColor: rotateCamera ? '#ffd700' : '#444',
+                color: rotateCamera ? '#ffd700' : '#888',
+              }}
+            >
+              🎥 {rotateCamera ? 'Cám. Auto (C)' : 'Cám. Fija (C)'}
+            </button>
+          )}
           <button
             type="button"
             className="cs-btn"
@@ -462,11 +553,12 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       <div style={{ color: '#888', fontSize: 13, fontFamily: 'monospace', marginTop: 10 }}>
         {isCarMode ? (
           <>
-            Controles: <b>W</b> avanzar &nbsp;·&nbsp;
-            <b>S</b> retroceder / frenar &nbsp;·&nbsp;
-            <b>A / D</b> girar &nbsp;·&nbsp;
+            Controles: <b>W</b> acelerar &nbsp;·&nbsp;
+            <b>A / D</b> direccionar ruedas (flecha) &nbsp;·&nbsp;
+            <b>S</b> reversa / frenar &nbsp;·&nbsp;
             <b>Shift</b> BOOST &nbsp;·&nbsp;
             <b>Espacio</b> KICK / FLIP &nbsp;·&nbsp;
+            <b>C</b> cambiar cámara (auto/fija) &nbsp;·&nbsp;
             <b>Ruedita / Q / E</b> zoom &nbsp;·&nbsp;
             <b>ESC</b> menú
           </>
@@ -1124,10 +1216,28 @@ function drawCar(ctx, car) {
   ctx.fillStyle = '#1e1e1e';
   const wheelW = 7;
   const wheelH = 3.5;
-  ctx.fillRect(halfW - wheelW - 1, -halfH - 2, wheelW, wheelH);
-  ctx.fillRect(halfW - wheelW - 1, halfH - 1.5, wheelW, wheelH);
+  const steer = car.steerAngle || 0;
+
+  // Ruedas traseras (fijas)
   ctx.fillRect(-halfW + 2, -halfH - 2, wheelW, wheelH);
   ctx.fillRect(-halfW + 2, halfH - 1.5, wheelW, wheelH);
+
+  // Ruedas delanteras (rotadas con steerAngle de dirección)
+  const frontX = halfW - wheelW / 2 - 1;
+  const frontTopY = -halfH - 2 + wheelH / 2;
+  const frontBotY = halfH - 1.5 + wheelH / 2;
+
+  ctx.save();
+  ctx.translate(frontX, frontTopY);
+  ctx.rotate(steer);
+  ctx.fillRect(-wheelW / 2, -wheelH / 2, wheelW, wheelH);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(frontX, frontBotY);
+  ctx.rotate(steer);
+  ctx.fillRect(-wheelW / 2, -wheelH / 2, wheelW, wheelH);
+  ctx.restore();
 
   // 3. Carrocería principal (color del equipo)
   ctx.fillStyle = color;
@@ -1202,6 +1312,42 @@ function drawCar(ctx, car) {
   ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
   ctx.fillStyle = bVal > 50 ? '#f59e0b' : bVal > 20 ? '#fbbf24' : '#ef4444';
   ctx.fillRect(bx, by, (barW * Math.max(0, Math.min(100, bVal))) / 100, barH);
+
+  // 12. Flecha indicadora de dirección de las ruedas (estilo Rocket League)
+  // Muestra hacia dónde apuntan las ruedas y hacia dónde irá el auto al presionar W
+  const arrowDist = halfW + 3;
+  const arrowLength = 17;
+  const isTurned = Math.abs(steer) > 0.04;
+  const arrowColor = isTurned ? '#ffea00' : 'rgba(255, 255, 255, 0.75)';
+
+  ctx.save();
+  ctx.translate(arrowDist, 0);
+  ctx.rotate(steer);
+
+  // Sombra negra para máxima visibilidad sobre el césped
+  ctx.shadowColor = 'rgba(0,0,0,0.85)';
+  ctx.shadowBlur = 4;
+
+  // Tallo de la flecha
+  ctx.strokeStyle = arrowColor;
+  ctx.lineWidth = isTurned ? 2.5 : 2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(1, 0);
+  ctx.lineTo(arrowLength - 5, 0);
+  ctx.stroke();
+
+  // Cabeza de flecha puntiaguda
+  ctx.fillStyle = arrowColor;
+  ctx.beginPath();
+  ctx.moveTo(arrowLength, 0);
+  ctx.lineTo(arrowLength - 6.5, -4);
+  ctx.lineTo(arrowLength - 5, 0);
+  ctx.lineTo(arrowLength - 6.5, 4);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
 
   ctx.restore();
 }
@@ -1290,4 +1436,138 @@ function drawCarHUD(ctx, car, canvasSize) {
 
   ctx.restore();
 }
+
+/**
+ * Dibuja un indicador perimetral estilo Rocket League cuando la pelota sale de la pantalla visible.
+ * Incluye flecha apuntando a la pelota, mini-balón y distancia en metros.
+ */
+function drawOffscreenBallIndicator(ctx, ball, myCar, canvasSize, zoom, screenCenterX, screenCenterY, cx, cy, isRotatingCam) {
+  if (!ball) return;
+
+  const bx = ball.x - cx;
+  const by = ball.y - cy;
+
+  let ballScreenX, ballScreenY;
+  if (isRotatingCam && myCar) {
+    const carAngle = myCar.angle ?? -Math.PI / 2;
+    const rot = -Math.PI / 2 - carAngle;
+    const cosR = Math.cos(rot);
+    const sinR = Math.sin(rot);
+    const rx = bx * cosR - by * sinR;
+    const ry = bx * sinR + by * cosR;
+    ballScreenX = screenCenterX + rx * zoom;
+    ballScreenY = screenCenterY + ry * zoom;
+  } else {
+    ballScreenX = screenCenterX + bx * zoom;
+    ballScreenY = screenCenterY + by * zoom;
+  }
+
+  // Comprobar si la pelota está fuera del área visible de la pantalla
+  const margin = 26;
+  const isOffscreen = (
+    ballScreenX < margin ||
+    ballScreenX > canvasSize.w - margin ||
+    ballScreenY < margin ||
+    ballScreenY > canvasSize.h - margin
+  );
+
+  if (!isOffscreen) return; // Si la pelota ya se ve en pantalla, no dibujamos el indicador
+
+  // Vector desde el centro de la pantalla hacia la pelota
+  const dx = ballScreenX - screenCenterX;
+  const dy = ballScreenY - screenCenterY;
+  if (dx === 0 && dy === 0) return;
+
+  // Intersección ray-box con los bordes de la pantalla
+  const edgeMargin = 42;
+  const minX = edgeMargin;
+  const maxX = canvasSize.w - edgeMargin;
+  const minY = edgeMargin;
+  const maxY = canvasSize.h - edgeMargin;
+
+  let t = Infinity;
+  if (dx > 0) t = Math.min(t, (maxX - screenCenterX) / dx);
+  else if (dx < 0) t = Math.min(t, (minX - screenCenterX) / dx);
+
+  if (dy > 0) t = Math.min(t, (maxY - screenCenterY) / dy);
+  else if (dy < 0) t = Math.min(t, (minY - screenCenterY) / dy);
+
+  const indX = Math.max(minX, Math.min(maxX, screenCenterX + dx * t));
+  const indY = Math.max(minY, Math.min(maxY, screenCenterY + dy * t));
+  const angle = Math.atan2(dy, dx);
+
+  // Distancia del auto a la pelota
+  const distWorld = myCar ? Math.hypot(ball.x - myCar.x, ball.y - myCar.y) : Math.hypot(dx, dy) / zoom;
+  const distMeters = Math.round(distWorld / 14);
+
+  ctx.save();
+  ctx.translate(indX, indY);
+
+  // Sombra negra para destacar sobre cualquier textura del mapa
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+  ctx.shadowBlur = 8;
+
+  // 1. Flecha exterior apuntando directamente hacia la pelota
+  const pulse = 1 + Math.sin(Date.now() / 200) * 0.08;
+  ctx.save();
+  ctx.rotate(angle);
+  ctx.scale(pulse, pulse);
+  ctx.fillStyle = '#f59e0b';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(22, 0);
+  ctx.lineTo(10, -9);
+  ctx.lineTo(13, 0);
+  ctx.lineTo(10, 9);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  // 2. Círculo / Badge de la pelota
+  const badgeR = 15;
+  ctx.beginPath();
+  ctx.arc(0, 0, badgeR, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#f59e0b';
+  ctx.stroke();
+
+  // 3. Patrón de pelota de fútbol en el badge
+  ctx.fillStyle = '#1e1e1e';
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const a = (i * Math.PI * 2) / 5 - Math.PI / 2;
+    const px = Math.cos(a) * 4.5;
+    const py = Math.sin(a) * 4.5;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = '#1e1e1e';
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 5; i++) {
+    const a = (i * Math.PI * 2) / 5 - Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * 4.5, Math.sin(a) * 4.5);
+    ctx.lineTo(Math.cos(a) * badgeR, Math.sin(a) * badgeR);
+    ctx.stroke();
+  }
+
+  // 4. Etiqueta de distancia en metros debajo del badge
+  ctx.shadowColor = 'rgba(0, 0, 0, 1)';
+  ctx.shadowBlur = 4;
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#fef08a';
+  ctx.fillText(`${distMeters}m`, 0, badgeR + 3);
+
+  ctx.restore();
+}
+
 

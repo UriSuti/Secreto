@@ -72,9 +72,16 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST - 0.7.0 = Fútbol (Modo Coches): Incorporación de tres mecánicas avanzadas inspiradas en Rocket League 2D:
-- Sistema de Boost: medidor de turbo 0-100 por auto (consumo continuo a ~33.3 u/s mediante Shift, sin recarga pasiva) que otorga aceleración frontal adicional (boostAccel +620) y velocidad punta superior (hasta 430 px/s).
+0.7.0 = Fútbol (Modo Coches): Incorporación de tres mecánicas avanzadas inspiradas en Rocket League 2D:
+- Sistema de Boost: medidor de turbo 0-100 por auto (consumo continuo mediante Shift, sin recarga pasiva) que otorga aceleración frontal adicional y velocidad punta superior.
 - Boost Pickups: pads distribuidos en la cancha vertical con recolección física y respawn automático (6 pads grandes de recarga completa +100 con orbes brillantes y respawn en 8s; 10 pads pequeños de +12 con rombos celestes y respawn en 4s). Clamp estricto a 100 de turbo.
-- Pelota pesada y más grande: radio aumentado a 14.5px y masa pesada a 2.4 (vs 0.45 y 1.2 del auto). Los toques suaves y autos lentos apenas la desplazan; choques a velocidad rápida producen disparos sólidos y controlados.
-- Front Flip / Kick aéreo (Espacio): salto acrobático hacia adelante con impulso de avance e ilusión de rotación pitch 3D en 2D con cooldown de ~1.2s. Conectar el flip frontal con la pelota pesada vence su masa e inercia disparándola a máxima potencia. Si se ejecuta lejos de la pelota, el auto salta en el aire sin ejercer fuerza a distancia.
+- Front Flip / Kick aéreo (Espacio): salto acrobático hacia adelante con impulso de avance e ilusión de rotación pitch 3D en 2D con cooldown de ~1.2s. Si se ejecuta lejos de la pelota, el auto salta en el aire sin ejercer fuerza a distancia.
 - HUD y efectos visuales de autos: medidor de Boost estilo Rocket League con indicador circular en pantalla, pastilla de cooldown de Flip, llamaradas de turbo en escapes traseros y estelas dinámicas durante el flip.
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST - 0.7.1 = Fútbol (Modo Coches): Controles de dirección estilo Rocket League y ajustes de conducción:
+- Dirección de ruedas reales: presionar A o D posiciona el ángulo de las ruedas delanteras (steerAngle) en vez de hacer rotar el auto sobre su propio eje. Si el auto está detenido, presionar A/D NO hace girar el chasis.
+- Rotación dinámica al acelerar: al avanzar con W (o retroceder con S), el chasis curva progresivamente hacia donde apuntan las ruedas.
+- Flecha HUD indicadora de ruedas: se añade una flecha frontal en la punta del auto que apunta en tiempo real en la dirección exacta de las ruedas delanteras, iluminándose en amarillo al girar para saber hacia dónde irá el auto antes de acelerar. Además, los neumáticos delanteros giran físicamente sobre el sprite del auto.
+- Conducción optimizada: desaceleración post-boost más ágil, impulso de arranque de turbo inmediato, toquecitos dinámicos al llevar la pelota sin frenar al vehículo y pelota con rodamiento fluido y natural.

@@ -676,13 +676,16 @@ export const CAR_CONFIG = {
   turnSpeedBase: 2.8, // velocidad angular base (rad/s)
   turnSpeedLow: 3.6,  // velocidad angular a velocidad baja (rad/s)
   turnMinSpeed: 20,   // a menos de esta velocidad el auto gira más fácil
+  maxSteerAngle: 0.65, // ángulo máximo de ruedas delanteras (~37 grados)
+  steerSpeed: 9.0,     // velocidad a la que giran las ruedas (rad/s)
+  turnRateFactor: 3.4, // factor de rotación del chasis al avanzar
   restitution: 0.25,  // rebote auto-auto
   ballPushForce: 520, // fuerza base de empuje
   touchCooldownMs: 140, // ms entre toquecitos a la pelota (da efecto de dribbling)
 };
 
 // Estado inicial de un auto (cancha vertical: Rojo abajo apuntando hacia arriba -PI/2, Azul arriba apuntando hacia abajo PI/2)
-export function makeCarState(p, x, y, initialAngle) {
+export function makeCarState(p, x, y, initialAngle, infiniteBoost = false) {
   const defaultAngle = p.team === 'red' ? -Math.PI / 2 : Math.PI / 2;
   const angle = initialAngle !== undefined ? initialAngle : defaultAngle;
   return {
@@ -694,8 +697,9 @@ export function makeCarState(p, x, y, initialAngle) {
     vx: 0,
     vy: 0,
     angle,
+    steerAngle: 0,       // ángulo de ruedas delanteras relativo al auto
     speed: 0,
-    boost: 33,           // inicia con 33 de boost (estilo Rocket League)
+    boost: infiniteBoost ? 100 : 33, // inicia con 100 si es infinito (o 33 normal)
     isBoosting: false,
     isFlipping: false,
     flipTime: 0,
@@ -778,12 +782,13 @@ export function createCarGameState(players, options = {}) {
   const redPositions = spreadPositionsVertical(reds.length, cx, cy + 220, 'bottom');
   const bluePositions = spreadPositionsVertical(blues.length, cx, cy - 220, 'top');
 
+  const infiniteBoost = Boolean(options.infiniteBoost);
   const playerStates = {};
   reds.forEach((p, i) => {
-    playerStates[p.id] = makeCarState(p, redPositions[i].x, redPositions[i].y, -Math.PI / 2);
+    playerStates[p.id] = makeCarState(p, redPositions[i].x, redPositions[i].y, -Math.PI / 2, infiniteBoost);
   });
   blues.forEach((p, i) => {
-    playerStates[p.id] = makeCarState(p, bluePositions[i].x, bluePositions[i].y, Math.PI / 2);
+    playerStates[p.id] = makeCarState(p, bluePositions[i].x, bluePositions[i].y, Math.PI / 2, infiniteBoost);
   });
 
   return {
@@ -815,12 +820,13 @@ export function resetCarPositions(state, players) {
   const bluePositions = spreadPositionsVertical(blues.length, cx, cy - 220, 'top');
 
   const next = deepClone(state);
+  const infiniteBoost = Boolean(state.options?.infiniteBoost);
 
   reds.forEach((p, i) => {
-    next.players[p.id] = makeCarState(p, redPositions[i].x, redPositions[i].y, -Math.PI / 2);
+    next.players[p.id] = makeCarState(p, redPositions[i].x, redPositions[i].y, -Math.PI / 2, infiniteBoost);
   });
   blues.forEach((p, i) => {
-    next.players[p.id] = makeCarState(p, bluePositions[i].x, bluePositions[i].y, Math.PI / 2);
+    next.players[p.id] = makeCarState(p, bluePositions[i].x, bluePositions[i].y, Math.PI / 2, infiniteBoost);
   });
 
   next.ball = { x: cx, y: cy, vx: 0, vy: 0 };
@@ -872,24 +878,43 @@ export function stepCarPhysics(state, inputs, dt) {
   Object.values(next.players).forEach((car) => {
     const inp = inputs[car.id] || {};
 
-    // — Giro (antihorario con turnLeft / W, horario con turnRight / S)
-    const absSpeed = Math.abs(car.speed);
-    const turnDir = (inp.turnLeft ? -1 : 0) + (inp.turnRight ? 1 : 0);
+    // — Giro de ruedas y dirección (estilo Rocket League)
+    // A/D posicionan las ruedas delanteras (steerAngle), NO rotan el auto si está detenido.
+    // Solo cuando el auto se desplaza (con W / acelerar o S / reversa), el chasis rota hacia donde apuntan las ruedas.
+    const maxSteer = C.maxSteerAngle || 0.65;
+    const steerSpeed = C.steerSpeed || 9.0;
+    const targetSteer = (inp.turnLeft ? -maxSteer : 0) + (inp.turnRight ? maxSteer : 0);
 
-    if (turnDir !== 0) {
-      const speedFactor = Math.max(0, 1 - (absSpeed / C.maxSpeed) * 0.65);
-      const turnRate = C.turnSpeedLow * speedFactor + C.turnSpeedBase * (1 - speedFactor);
+    if (car.steerAngle === undefined) car.steerAngle = 0;
+    if (car.steerAngle < targetSteer) {
+      car.steerAngle = Math.min(targetSteer, car.steerAngle + steerSpeed * s);
+    } else if (car.steerAngle > targetSteer) {
+      car.steerAngle = Math.max(targetSteer, car.steerAngle - steerSpeed * s);
+    }
+
+    // Rotación del chasis: SOLO si el auto tiene velocidad (no está detenido)
+    const absSpeed = Math.abs(car.speed);
+    if (absSpeed > 4 && Math.abs(car.steerAngle) > 0.01) {
+      const speedNorm = Math.min(1.2, Math.max(0.4, absSpeed / 95));
+      const turnMultiplier = C.turnRateFactor || 3.4;
+      const turnRate = (car.steerAngle / maxSteer) * turnMultiplier * speedNorm;
       const reverseSign = car.speed < -5 ? -1 : 1;
-      car.angle += turnDir * turnRate * s * reverseSign;
+      car.angle += turnRate * s * reverseSign;
     }
 
     // — Boost
-    const wantBoost = Boolean(inp.boost && (car.boost || 0) > 0);
-    if (wantBoost) {
-      car.boost = Math.max(0, (car.boost || 0) - C.boostDrainRate * s);
-      car.isBoosting = car.boost > 0;
+    const isInfiniteBoost = Boolean(next.options?.infiniteBoost);
+    if (isInfiniteBoost) {
+      car.boost = 100;
+      car.isBoosting = Boolean(inp.boost);
     } else {
-      car.isBoosting = false;
+      const wantBoost = Boolean(inp.boost && (car.boost || 0) > 0);
+      if (wantBoost) {
+        car.boost = Math.max(0, (car.boost || 0) - C.boostDrainRate * s);
+        car.isBoosting = car.boost > 0;
+      } else {
+        car.isBoosting = false;
+      }
     }
 
     // — Flip / Kick (espacio)
