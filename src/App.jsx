@@ -17,7 +17,7 @@ import Players from './codigo-secreto/Players.jsx';
 import { LobbyLayout, LobbyTeamCard, TeamRoleSlot, LobbyActionSection } from './lobby/index.js';
 import CafeOTeApp from './cafeote/CafeOTeApp.jsx';
 import FutbolApp from './futbol/FutbolApp.jsx';
-import MainMenu from './MainMenu.jsx';
+import MainMenu from './menu/MainMenu.jsx';
 import Credits from './menu/Credits.jsx';
 
 function gameFromUrl() {

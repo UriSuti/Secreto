@@ -86,4 +86,11 @@
 - Flecha HUD indicadora de ruedas: se añade una flecha frontal en la punta del auto que apunta en tiempo real en la dirección exacta de las ruedas delanteras, iluminándose en amarillo al girar para saber hacia dónde irá el auto antes de acelerar. Además, los neumáticos delanteros giran físicamente sobre el sprite del auto.
 - Conducción optimizada: desaceleración post-boost más ágil, impulso de arranque de turbo inmediato, toquecitos dinámicos al llevar la pelota sin frenar al vehículo y pelota con rodamiento fluido y natural.
 
-LATEST - 0.7.2 = Arreglos fisica de pelota
+0.7.2 = Arreglos fisica de pelota
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST - 0.7.3 = Arreglos de mantenimiento:
+- Fútbol online arreglado: las reglas de la base denegaban la rama `futbol/` (donde se sincronizan el estado del partido y los inputs), así que el modo online no funcionaba en el sitio publicado. Se agregó la regla y se desplegó.
+- Limpieza de la mudanza a carpetas: se borraron los 8 archivos sueltos de `src/` que solo reexportaban (`game.js`, `words.js`, `MainMenu.jsx`, `Credits.jsx`, `Chat.jsx`, `Options.jsx`, `Players.jsx`, `Rules.jsx`) y el único import que quedaba apuntando a uno de ellos pasa a la ruta real.
+- La version que se muestra en pantalla (APP_VERSION) estaba clavada en v0.4.2 y ahora acompaña al changelog.
