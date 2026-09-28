@@ -20,11 +20,15 @@ export default function FutbolLobby({ room, code, me, onDispatch, onLeave, onCop
   const blues = room.players.filter((p) => p.team === 'blue');
   const ready = canStart(room);
 
+  const subtitle = room?.isLocalGame
+    ? 'Partida local 1v1 en una misma pantalla (J1: WASD + Espacio | J2: Flechitas + Enter). Configurá los modificadores y comenzá cuando quieras.'
+    : `Compartí el código o el link para que se unan tus amigos.${host ? ' Sos el anfitrión: los modificadores son tuyos.' : ''}`;
+
   return (
     <LobbyLayout
       code={code || room?.code}
-      gameTitle="sala de espera"
-      subtitle={`Compartí el código o el link para que se unan tus amigos.${host ? ' Sos el anfitrión: los modificadores son tuyos.' : ''}`}
+      gameTitle={room?.isLocalGame ? "partida local" : "sala de espera"}
+      subtitle={subtitle}
       copied={copied}
       onCopyInvite={onCopyInvite}
       onLeave={onLeave}

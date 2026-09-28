@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { backend } from '../storage.js';
 import { clearSession, loadName, loadSession, saveSession } from '../session.js';
 import { COLORS, panelStyle, inputStyle, ghostButton, labelStyle } from '../theme.js';
-import { applyAction, cleanName, findPlayer, makeId, newRoom } from './game.js';
+import { applyAction, cleanName, DEFAULT_OPTIONS, findPlayer, makeId, newRoom } from './game.js';
 import FutbolLobby from './FutbolLobby.jsx';
 import FutbolGame from './FutbolGame.jsx';
 
@@ -31,6 +31,26 @@ function inviteLink(code) {
   return url.toString();
 }
 
+function makeLocalRoom(playerName) {
+  const clean = cleanName(playerName) || 'Jugador 1';
+  return {
+    gameType: 'futbol',
+    phase: 'lobby',
+    hostId: 'p1',
+    isLocalGame: true,
+    options: { ...DEFAULT_OPTIONS },
+    players: [
+      { id: 'p1', name: clean, team: 'red' },
+      { id: 'p2', name: 'Jugador 2', team: 'blue' },
+    ],
+    score: { red: 0, blue: 0 },
+    winner: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    matchNumber: 1,
+  };
+}
+
 export default function FutbolApp({ onBackToMenu }) {
   const [name, setName] = useState(loadName);
   const [joinCode, setJoinCode] = useState(codeFromUrl);
@@ -39,13 +59,14 @@ export default function FutbolApp({ onBackToMenu }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
-  // Estado de fin de partida local (el canvas lo notifica)
   const [gameEnded, setGameEnded] = useState(false);
 
+  const isLocal = Boolean(session?.isLocalGame);
   const code = session?.code;
 
+  // Suscripción a sala online. Solo corre cuando hay sesión online (no local).
   useEffect(() => {
-    if (!code) return undefined;
+    if (!code || isLocal) return undefined;
     setRoom(null);
     return backend.subscribeRoom(
       code,
@@ -58,19 +79,26 @@ export default function FutbolApp({ onBackToMenu }) {
       },
       () => setError('No se pudo conectar con la sala.'),
     );
-  }, [code]);
+  }, [code, isLocal]);
 
   const me = findPlayer(room, session?.playerId);
 
   function enterRoom(next) {
     saveSession(next);
-    setUrlCode(next.code);
+    if (!next.isLocalGame) setUrlCode(next.code);
     setError('');
     setSession(next);
   }
 
   async function dispatch(action) {
     if (!session) return null;
+
+    // Modo local: muta directamente el estado local sin red
+    if (session.isLocalGame) {
+      setRoom((current) => applyAction(current, { ...action, playerId: session.playerId }));
+      return null;
+    }
+
     const { code: roomCode, playerId } = session;
     try {
       return await backend.updateRoom(roomCode, (current) => applyAction(current, { ...action, playerId }));
@@ -80,6 +108,16 @@ export default function FutbolApp({ onBackToMenu }) {
     }
   }
 
+  // ─── Crear partida local ────────────────────────────────────────────────
+  function handleCreateLocal() {
+    const localRoom = makeLocalRoom(name);
+    const sess = { playerId: 'p1', isLocalGame: true, name: localRoom.players[0].name };
+    setError('');
+    setRoom(localRoom);
+    setSession(sess);
+  }
+
+  // ─── Crear sala online ──────────────────────────────────────────────────
   async function handleCreate() {
     const clean = cleanName(name);
     if (!clean) { setError('Escribí tu nombre primero.'); return; }
@@ -96,6 +134,7 @@ export default function FutbolApp({ onBackToMenu }) {
     }
   }
 
+  // ─── Unirse a sala online ───────────────────────────────────────────────
   async function handleJoin(e) {
     e.preventDefault();
     const clean = cleanName(name);
@@ -125,13 +164,13 @@ export default function FutbolApp({ onBackToMenu }) {
     setJoinCode('');
     setError('');
     setGameEnded(false);
-    if (leaving) {
+    if (leaving && !leaving.isLocalGame && leaving.code) {
       backend.updateRoom(leaving.code, (current) => applyAction(current, { type: 'leave', playerId: leaving.playerId })).catch(() => {});
     }
   }
 
   async function copyInvite() {
-    if (!session?.code) return;
+    if (!session?.code || session.isLocalGame) return;
     const link = inviteLink(session.code);
     try {
       await navigator.clipboard.writeText(link);
@@ -142,13 +181,10 @@ export default function FutbolApp({ onBackToMenu }) {
     }
   }
 
-  // Cuando el canvas notifica un gol, sincronizamos con Firebase. El número de saque hace que el
-  // mismo gol no pueda contarse dos veces.
   async function handleGoal(team, kickoff) {
     await dispatch({ type: 'goalScored', team, kickoff });
   }
 
-  // Cuando se acaba el tiempo, terminamos el partido
   async function handleTimeEnd() {
     setGameEnded(true);
     await dispatch({ type: 'endGame' });
@@ -199,7 +235,29 @@ export default function FutbolApp({ onBackToMenu }) {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {/* Crear sala */}
+              {/* Juego Local */}
+              <div style={{ background: COLORS.panelSoft, border: `1px solid ${COLORS.panelBorder}`, borderRadius: 6, padding: 14 }}>
+                <div style={{ fontWeight: 700, color: COLORS.cream, fontSize: 15, marginBottom: 6 }}>
+                  🎮 Juego Local (Misma pantalla)
+                </div>
+                <p style={{ margin: '0 0 10px', fontSize: 13, color: COLORS.muted }}>
+                  Enfrentate 1v1 contra un amigo en la misma computadora sin necesidad de internet.
+                </p>
+                <div style={{ background: '#181818', borderRadius: 4, padding: '8px 10px', marginBottom: 12, fontSize: 11, color: '#aaa', fontFamily: 'monospace', lineHeight: 1.6 }}>
+                  <div>🔴 <b>Jugador 1:</b> WASD + Espacio + Shift Izq</div>
+                  <div>🔵 <b>Jugador 2:</b> Flechitas + Enter + Shift Der</div>
+                </div>
+                <button
+                  type="button"
+                  className="cs-btn"
+                  onClick={handleCreateLocal}
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: 4, background: COLORS.green, color: COLORS.greenText, fontWeight: 700, fontSize: 14 }}
+                >
+                  Crear partida local (1v1)
+                </button>
+              </div>
+
+              {/* Crear sala online */}
               <div style={{ background: COLORS.panelSoft, border: `1px solid ${COLORS.panelBorder}`, borderRadius: 6, padding: 14 }}>
                 <div style={{ fontWeight: 700, color: COLORS.cream, fontSize: 15, marginBottom: 6 }}>
                   🌐 Crear sala online
@@ -253,7 +311,7 @@ export default function FutbolApp({ onBackToMenu }) {
     );
   }
 
-  // ─── Cargando sala ─────────────────────────────────────────────────────
+  // ─── Cargando sala online ──────────────────────────────────────────────
   if (!room) {
     return (
       <div className="cs-root" style={{ background: COLORS.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: 16 }}>
@@ -328,28 +386,26 @@ export default function FutbolApp({ onBackToMenu }) {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {me && (
-              <button
-                type="button"
-                className="cs-btn"
-                onClick={() => {
-                  setGameEnded(false);
-                  dispatch({ type: 'toLobby' });
-                }}
-                style={{
-                  width: '100%',
-                  padding: 14,
-                  borderRadius: 4,
-                  background: COLORS.gold,
-                  color: COLORS.ink,
-                  fontWeight: 700,
-                  fontSize: 16,
-                  border: `1px solid ${COLORS.gold}`,
-                }}
-              >
-                Volver al lobby
-              </button>
-            )}
+            <button
+              type="button"
+              className="cs-btn"
+              onClick={() => {
+                setGameEnded(false);
+                dispatch({ type: 'toLobby' });
+              }}
+              style={{
+                width: '100%',
+                padding: 14,
+                borderRadius: 4,
+                background: COLORS.gold,
+                color: COLORS.ink,
+                fontWeight: 700,
+                fontSize: 16,
+                border: `1px solid ${COLORS.gold}`,
+              }}
+            >
+              Volver al lobby
+            </button>
             <button type="button" className="cs-btn" onClick={handleLeave} style={{ ...ghostButton, width: '100%', padding: 12 }}>
               Salir del partido
             </button>
@@ -369,7 +425,6 @@ export default function FutbolApp({ onBackToMenu }) {
         onGoal={handleGoal}
         onTimeEnd={handleTimeEnd}
         onBackToLobby={() => dispatch({ type: 'toLobby' })}
-
         onLeave={handleLeave}
       />
     );

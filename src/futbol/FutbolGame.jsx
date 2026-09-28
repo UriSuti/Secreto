@@ -27,6 +27,7 @@ const GOAL_RUNOFF_MARGIN = 70;
 
 export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackToLobby, onLeave }) {
   const isCarMode = room.options?.vehicleMode === 'coches';
+  const isLocalGame = Boolean(room?.isLocalGame);
   const matchMinutes = Number(room.options?.matchMinutes ?? 0);
   const timed = matchMinutes > 0;
   const initialTimeMs = timed ? matchMinutes * 60 * 1000 : 0;
@@ -43,6 +44,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
   const canvasRef = useRef(null);
   const stateRef = useRef(null);
   const myInputRef = useRef({});
+  const p1InputRef = useRef({});
+  const p2InputRef = useRef({});
   const camRef = useRef({ x: FIELD.width / 2, y: FIELD.height / 2 });
   const zoomScaleRef = useRef(1.0);
   const zoomKeysRef = useRef({ zoomIn: false, zoomOut: false });
@@ -87,9 +90,17 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         setShowMenu((prev) => !prev);
         return;
       }
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Enter'].includes(e.key)) e.preventDefault();
-      const field = inputField(e.key, isCarMode);
-      if (field) myInputRef.current[field] = true;
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Enter'].includes(e.key) || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        e.preventDefault();
+      }
+
+      if (isLocalGame) {
+        handleLocalKeyDown(e, isCarMode, p1InputRef.current, p2InputRef.current);
+      } else {
+        const field = inputField(e.key, isCarMode);
+        if (field) myInputRef.current[field] = true;
+      }
+
       if (e.key === 'q' || e.key === 'Q') zoomKeysRef.current.zoomOut = true;
       if (e.key === 'e' || e.key === 'E') zoomKeysRef.current.zoomIn = true;
       if (isCarMode && (e.key === 'c' || e.key === 'C')) {
@@ -100,14 +111,20 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       }
     }
     function onKeyUp(e) {
-      const field = inputField(e.key, isCarMode);
-      if (field) myInputRef.current[field] = false;
+      if (isLocalGame) {
+        handleLocalKeyUp(e, isCarMode, p1InputRef.current, p2InputRef.current);
+      } else {
+        const field = inputField(e.key, isCarMode);
+        if (field) myInputRef.current[field] = false;
+      }
       if (e.key === 'q' || e.key === 'Q') zoomKeysRef.current.zoomOut = false;
       if (e.key === 'e' || e.key === 'E') zoomKeysRef.current.zoomIn = false;
     }
     // Si la ventana pierde el foco con una tecla apretada, el keyup no llega nunca: se suelta todo.
     function onBlur() {
       myInputRef.current = {};
+      p1InputRef.current = {};
+      p2InputRef.current = {};
       zoomKeysRef.current = { zoomIn: false, zoomOut: false };
     }
     window.addEventListener('keydown', onKeyDown);
@@ -118,7 +135,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [isCarMode]);
+  }, [isCarMode, isLocalGame]);
 
   // ─── Red + bucle del partido ─────────────────────────────────────────────
   // Mi jugador: tecla → movimiento → dibujo, todo en el mismo cuadro; a la red va una foto cada 50 ms.
@@ -126,6 +143,100 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
   // La pelota la simula quien la tocó último; mientras la tiene otro, se interpola como a él.
   useEffect(() => {
     stateRef.current = createGameState(roomRef.current.players, roomRef.current.options);
+
+    if (isLocalGame) {
+      let localKickoff = -1;
+      let goalSentFor = -1;
+      let endNotified = false;
+      const mountedAt = performance.now();
+      const localPlayers = roomRef.current.players;
+      const p1Player = localPlayers.find((p) => p.team === 'red') || localPlayers[0];
+      const p2Player = localPlayers.find((p) => p.team === 'blue') || localPlayers[1];
+      const p1Id = p1Player?.id || 'p1';
+      const p2Id = p2Player?.id || 'p2';
+      const localSet = new Set([p1Id, p2Id]);
+
+      const localMatch = initialMatch(matchNumber, Date.now(), initialTimeMs);
+
+      function applyLocalKickoff(k) {
+        localKickoff = k;
+        stateRef.current = resetPositions(stateRef.current, roomRef.current.players);
+      }
+
+      function declareLocalGoal(team, k) {
+        goalSentFor = k;
+        const goalsToWin = Number(roomRef.current.options?.goalsToWin || 0);
+        const updated = goalMatch(localMatch, team, Date.now(), timed, goalsToWin);
+        Object.assign(localMatch, updated);
+        callbacksRef.current.onGoal(team, k);
+      }
+
+      let lastHud = null;
+      function updateHud(time, red, blue) {
+        const key = `${time}|${red}|${blue}`;
+        if (key === lastHud) return;
+        lastHud = key;
+        setHud({ time, red, blue });
+      }
+
+      const canvas = canvasRef.current;
+      function onWheel(e) {
+        e.preventDefault();
+        if (e.deltaY > 0) zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.08);
+        else if (e.deltaY < 0) zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.08);
+      }
+      canvas?.addEventListener('wheel', onWheel, { passive: false });
+
+      let raf = 0;
+      let lastTs = null;
+      function frame(ts) {
+        raf = requestAnimationFrame(frame);
+        const dt = lastTs === null ? 16 : Math.min(ts - lastTs, 50);
+        lastTs = ts;
+        const now = Date.now();
+        const view = matchPhase(localMatch, now, timed);
+
+        if (localMatch.k !== localKickoff && view.phase !== 'goal') {
+          applyLocalKickoff(localMatch.k);
+        }
+
+        let state = stateRef.current;
+
+        if (view.phase === 'playing') {
+          const inputs = {
+            [p1Id]: p1InputRef.current,
+            [p2Id]: p2InputRef.current,
+          };
+          const result = stepPhysics(state, inputs, dt, { local: localSet });
+          state = result.nextState;
+          stateRef.current = state;
+
+          if (result.goal && goalSentFor !== localMatch.k) {
+            declareLocalGoal(result.goal, localMatch.k);
+          }
+        }
+
+        if (view.phase === 'ended' && !endNotified) {
+          endNotified = true;
+          callbacksRef.current.onTimeEnd();
+        }
+
+        updateHud(formatTime(view.clock), localMatch.sr, localMatch.sb);
+
+        if (zoomKeysRef.current.zoomOut) zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.02 * (dt / 16));
+        if (zoomKeysRef.current.zoomIn) zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.02 * (dt / 16));
+
+        updateCamera(state, dt);
+        renderScene(canvas.getContext('2d'), state, state.ball, overlayText(view, localMatch, ts - mountedAt));
+      }
+
+      raf = requestAnimationFrame(frame);
+      return () => {
+        cancelAnimationFrame(raf);
+        canvas?.removeEventListener('wheel', onWheel);
+      };
+    }
+
     const channel = backend.futbolChannel(code);
     const net = {
       offset: 0,
@@ -454,8 +565,10 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
     }
 
     function updateCamera(state, dt) {
-      // Enfocar en el jugador actual (`me`), o el primer jugador, o la pelota
-      const target = (meId && state.players[meId]) || Object.values(state.players)[0] || state.ball;
+      // En partida local enfocar la pelota; en online, a me, primer jugador o la pelota
+      const target = isLocalGame
+        ? state.ball
+        : ((meId && state.players[meId]) || Object.values(state.players)[0] || state.ball);
       if (!target) return;
 
       const isRotatingCam = isCarMode && rotateCameraRef.current;
@@ -664,8 +777,18 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       />
 
       {/* Indicador de controles */}
-      <div style={{ color: '#888', fontSize: 13, fontFamily: 'monospace', marginTop: 10 }}>
-        {isCarMode ? (
+      <div style={{ color: '#888', fontSize: 13, fontFamily: 'monospace', marginTop: 10, textAlign: 'center' }}>
+        {isLocalGame ? (
+          <>
+            <span style={{ color: '#e05050', fontWeight: 700 }}>🔴 J1 (Rojo):</span> WASD (mover) · <b>ESPACIO</b> (patada)
+            {room.options.stamina && <> · <b>SHIFT Izq</b> (correr)</>}
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <span style={{ color: '#4a90d9', fontWeight: 700 }}>🔵 J2 (Azul):</span> Flechas (mover) · <b>ENTER</b> (patada)
+            {room.options.stamina && <> · <b>SHIFT Der</b> (correr)</>}
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <b>ESC</b> menú
+          </>
+        ) : isCarMode ? (
           <>
             Controles: <b>W</b> acelerar &nbsp;·&nbsp;
             <b>A / D</b> direccionar ruedas (flecha) &nbsp;·&nbsp;
@@ -796,6 +919,86 @@ function angleDiff(a, b) {
   while (d > Math.PI) d -= Math.PI * 2;
   while (d < -Math.PI) d += Math.PI * 2;
   return d;
+}
+
+function handleLocalKeyDown(e, isCarMode, p1Input, p2Input) {
+  const code = e.code;
+  const key = e.key;
+  const k = key.length === 1 ? key.toLowerCase() : key;
+
+  // Jugador 1: WASD, Space, ShiftLeft
+  if (isCarMode) {
+    if (k === 'w' || code === 'KeyW') p1Input.accelerate = true;
+    if (k === 's' || code === 'KeyS') p1Input.brake = true;
+    if (k === 'a' || code === 'KeyA') p1Input.turnLeft = true;
+    if (k === 'd' || code === 'KeyD') p1Input.turnRight = true;
+    if (code === 'Space' || k === ' ') p1Input.kick = true;
+    if (code === 'ShiftLeft') p1Input.boost = true;
+  } else {
+    if (k === 'w' || code === 'KeyW') p1Input.up = true;
+    if (k === 's' || code === 'KeyS') p1Input.down = true;
+    if (k === 'a' || code === 'KeyA') p1Input.left = true;
+    if (k === 'd' || code === 'KeyD') p1Input.right = true;
+    if (code === 'Space' || k === ' ') p1Input.kick = true;
+    if (code === 'ShiftLeft') p1Input.shift = true;
+  }
+
+  // Jugador 2: Arrow keys, Enter, ShiftRight
+  if (isCarMode) {
+    if (code === 'ArrowUp' || k === 'ArrowUp') p2Input.accelerate = true;
+    if (code === 'ArrowDown' || k === 'ArrowDown') p2Input.brake = true;
+    if (code === 'ArrowLeft' || k === 'ArrowLeft') p2Input.turnLeft = true;
+    if (code === 'ArrowRight' || k === 'ArrowRight') p2Input.turnRight = true;
+    if (code === 'Enter' || k === 'Enter') p2Input.kick = true;
+    if (code === 'ShiftRight') p2Input.boost = true;
+  } else {
+    if (code === 'ArrowUp' || k === 'ArrowUp') p2Input.up = true;
+    if (code === 'ArrowDown' || k === 'ArrowDown') p2Input.down = true;
+    if (code === 'ArrowLeft' || k === 'ArrowLeft') p2Input.left = true;
+    if (code === 'ArrowRight' || k === 'ArrowRight') p2Input.right = true;
+    if (code === 'Enter' || k === 'Enter') p2Input.kick = true;
+    if (code === 'ShiftRight') p2Input.shift = true;
+  }
+}
+
+function handleLocalKeyUp(e, isCarMode, p1Input, p2Input) {
+  const code = e.code;
+  const key = e.key;
+  const k = key.length === 1 ? key.toLowerCase() : key;
+
+  // Jugador 1
+  if (isCarMode) {
+    if (k === 'w' || code === 'KeyW') p1Input.accelerate = false;
+    if (k === 's' || code === 'KeyS') p1Input.brake = false;
+    if (k === 'a' || code === 'KeyA') p1Input.turnLeft = false;
+    if (k === 'd' || code === 'KeyD') p1Input.turnRight = false;
+    if (code === 'Space' || k === ' ') p1Input.kick = false;
+    if (code === 'ShiftLeft') p1Input.boost = false;
+  } else {
+    if (k === 'w' || code === 'KeyW') p1Input.up = false;
+    if (k === 's' || code === 'KeyS') p1Input.down = false;
+    if (k === 'a' || code === 'KeyA') p1Input.left = false;
+    if (k === 'd' || code === 'KeyD') p1Input.right = false;
+    if (code === 'Space' || k === ' ') p1Input.kick = false;
+    if (code === 'ShiftLeft') p1Input.shift = false;
+  }
+
+  // Jugador 2
+  if (isCarMode) {
+    if (code === 'ArrowUp' || k === 'ArrowUp') p2Input.accelerate = false;
+    if (code === 'ArrowDown' || k === 'ArrowDown') p2Input.brake = false;
+    if (code === 'ArrowLeft' || k === 'ArrowLeft') p2Input.turnLeft = false;
+    if (code === 'ArrowRight' || k === 'ArrowRight') p2Input.turnRight = false;
+    if (code === 'Enter' || k === 'Enter') p2Input.kick = false;
+    if (code === 'ShiftRight') p2Input.boost = false;
+  } else {
+    if (code === 'ArrowUp' || k === 'ArrowUp') p2Input.up = false;
+    if (code === 'ArrowDown' || k === 'ArrowDown') p2Input.down = false;
+    if (code === 'ArrowLeft' || k === 'ArrowLeft') p2Input.left = false;
+    if (code === 'ArrowRight' || k === 'ArrowRight') p2Input.right = false;
+    if (code === 'Enter' || k === 'Enter') p2Input.kick = false;
+    if (code === 'ShiftRight') p2Input.shift = false;
+  }
 }
 
 // Qué acción del input local controla cada tecla.

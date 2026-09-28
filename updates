@@ -107,6 +107,14 @@
 - Menos trabajo: escuchas separadas por jugador, pelota y partido (antes cualquier cambio bajaba y armaba todo el estado), escrituras que nunca se encolan, el marcador ya no redibuja la interfaz 60 veces por segundo, y un gol ya no reinicia la simulación entera.
 - Si se pierde el foco de la ventana con una tecla apretada, se suelta sola (antes el jugador quedaba andando).
 
-LATEST 0.8.1 = Futbol: laterales
+0.8.1 = Futbol: laterales
 - Se puede pasar por detras de los arcos
 - Se agrego "beta" a Futbol en el menu
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST 0.9.0 = Fútbol: Modo Juego Local (1v1 en una misma pantalla):
+- Nueva opción en el menú de fútbol para crear una partida local en el mismo teclado sin necesidad de internet.
+- Jugador 1 (Equipo Rojo): Movimiento con WASD, patada con ESPACIO y correr con SHIFT Izquierdo (si el modo estámina está activo).
+- Jugador 2 (Equipo Azul): Movimiento con Flechitas, patada con ENTER y correr con SHIFT Derecho (si el modo estámina está activo).
+- Simulación física simultánea de ambos jugadores a 60 FPS locales con cámara siguiendo la pelota.
