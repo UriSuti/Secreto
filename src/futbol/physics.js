@@ -212,18 +212,26 @@ export function resetPositions(state, players) {
 }
 
 // ─── Paso de simulación ────────────────────────────────────────────────────
-export function stepPhysics(state, inputs, dt) {
+// `opts.local`: ids de los jugadores que simula esta pantalla (en red, solo el propio). Los demás
+// llegan por la red ya resueltos: acá no se mueven, no tocan la pelota, y en un choque solo se
+// corrige al local, porque el remoto se corrige a sí mismo en su pantalla.
+// Sin `opts.local` se simula a todos, como en una sola pantalla.
+// Devuelve también `touched`: si algún jugador local tocó o pateó la pelota en este paso.
+export function stepPhysics(state, inputs, dt, opts) {
   if (state.options?.vehicleMode === 'coches') {
-    return stepCarPhysics(state, inputs, dt);
+    return stepCarPhysics(state, inputs, dt, opts);
   }
 
   const s = dt / 1000;
   const next = deepClone(state);
   const field = next.field || MAP_CONFIGS.cancha3;
   const staminaEnabled = next.options?.stamina ?? false;
+  const isLocal = localCheck(opts);
+  let touched = false;
 
   // 1. Mover jugadores
   Object.values(next.players).forEach((player) => {
+    if (!isLocal(player.id)) return;
     const input = inputs[player.id] || {};
 
     // Manejo de estado del Kick y acumulación del tiempo retenido
@@ -329,27 +337,28 @@ export function stepPhysics(state, inputs, dt) {
 
   for (let iter = 0; iter < SOLVER_ITERATIONS; iter++) {
     playerList.forEach((player) => {
-      resolvePlayerWall(player, field);
+      if (isLocal(player.id)) resolvePlayerWall(player, field);
     });
 
     resolveBallWall(next.ball, field);
 
     for (let i = 0; i < playerList.length; i++) {
       for (let j = i + 1; j < playerList.length; j++) {
-        resolvePlayerPlayer(playerList[i], playerList[j]);
+        resolvePair(playerList[i], playerList[j], isLocal, resolvePlayerPlayer);
       }
     }
 
     playerList.forEach((player) => {
-      resolvePlayerBall(player, next.ball);
+      if (isLocal(player.id) && resolvePlayerBall(player, next.ball)) touched = true;
     });
   }
 
   // 4. Kicks
   playerList.forEach((player) => {
-    if (player.isKicking) {
+    if (isLocal(player.id) && player.isKicking) {
       const contacted = tryKick(player, next.ball);
       if (contacted) {
+        touched = true;
         player.isKicking = false;
         player.hasHitBallThisPress = true;
       }
@@ -359,7 +368,52 @@ export function stepPhysics(state, inputs, dt) {
   // 5. Detectar gol
   const goal = detectGoal(next.ball, field);
 
-  return { nextState: next, goal };
+  return { nextState: next, goal, touched };
+}
+
+function localCheck(opts) {
+  if (!opts?.local) return () => true;
+  const local = opts.local instanceof Set ? opts.local : new Set(opts.local);
+  return (id) => local.has(id);
+}
+
+// Choque entre dos cuerpos. Si uno es remoto se hace exactamente la misma cuenta, pero se le
+// devuelve al remoto su estado: solo se aplica la mitad que le toca al local.
+function resolvePair(a, b, isLocal, resolve) {
+  const la = isLocal(a.id);
+  const lb = isLocal(b.id);
+  if (!la && !lb) return;
+  if (la && lb) {
+    resolve(a, b);
+    return;
+  }
+  const remote = la ? b : a;
+  const { x, y, vx, vy, speed } = remote;
+  resolve(a, b);
+  remote.x = x;
+  remote.y = y;
+  remote.vx = vx;
+  remote.vy = vy;
+  if (speed !== undefined) remote.speed = speed;
+}
+
+// Avanza solo la pelota (rozamiento y paredes, sin jugadores). Sirve para extrapolar la pelota
+// cuando las fotos de la red se atrasan, sin que atraviese las paredes.
+export function advanceBall(ball, field, ms) {
+  const cfg = field.isVertical ? CAR_BALL_CONFIG : BALL_CONFIG;
+  let left = Math.max(0, ms);
+  while (left > 0) {
+    const step = Math.min(16, left);
+    const s = step / 1000;
+    const fric = Math.pow(cfg.friction, s * 60);
+    ball.vx *= fric;
+    ball.vy *= fric;
+    ball.x += ball.vx * s;
+    ball.y += ball.vy * s;
+    resolveBallWall(ball, field);
+    left -= step;
+  }
+  return ball;
 }
 
 // ─── Resolución de colisiones ──────────────────────────────────────────────
@@ -533,7 +587,7 @@ function resolvePlayerBall(player, ball) {
   let dist = Math.hypot(dx, dy);
   const minDist = pr + br;
 
-  if (dist >= minDist) return;
+  if (dist >= minDist) return false;
 
   let nx = 0;
   let ny = 0;
@@ -560,13 +614,14 @@ function resolvePlayerBall(player, ball) {
   const rvx = ball.vx - player.vx;
   const rvy = ball.vy - player.vy;
   const dot = rvx * nx + rvy * ny;
-  if (dot >= 0) return;
+  if (dot >= 0) return true;
 
   const totalMass = PLAYER_CONFIG.mass + BALL_CONFIG.mass;
   const j = -(1 + BALL_CONFIG.playerRestitution) * dot / totalMass;
 
   ball.vx += j * PLAYER_CONFIG.mass * nx;
   ball.vy += j * PLAYER_CONFIG.mass * ny;
+  return true;
 }
 
 function tryKick(player, ball) {
@@ -646,8 +701,7 @@ function deepClone(obj) {
     next.players[id] = { ...p };
   });
   next.ball = { ...obj.ball };
-  if (obj.field) next.field = { ...obj.field };
-  if (obj.options) next.options = { ...obj.options };
+  // `field` y `options` no cambian durante el partido: se comparten en vez de copiarse cada cuadro.
   if (obj.boostPickups) {
     next.boostPickups = obj.boostPickups.map((bp) => ({ ...bp }));
   }
@@ -851,10 +905,13 @@ export function resetCarPositions(state, players) {
  * - KICK / FLIP: impulso frontal y rotación aérea con cooldown (~1.2s).
  * - PELOTA PESADA: masa 2.4, toques suaves apenas la mueven; flip conecta con enorme potencia.
  */
-export function stepCarPhysics(state, inputs, dt) {
+export function stepCarPhysics(state, inputs, dt, opts) {
   const s = dt / 1000;
   const next = deepClone(state);
   const field = next.field || MAP_CONFIGS.cancha3;
+  const isLocal = localCheck(opts);
+  let touched = false;
+  const pickupsTaken = [];
 
   const C = CAR_CONFIG;
   const halfW = C.width / 2;
@@ -876,6 +933,7 @@ export function stepCarPhysics(state, inputs, dt) {
 
   // 1. Mover autos
   Object.values(next.players).forEach((car) => {
+    if (!isLocal(car.id)) return;
     const inp = inputs[car.id] || {};
 
     // — Giro de ruedas y dirección (estilo Rocket League)
@@ -997,13 +1055,14 @@ export function stepCarPhysics(state, inputs, dt) {
 
     // — Recolección de pickups de Boost
     if (next.boostPickups && (car.boost || 0) < 100) {
-      next.boostPickups.forEach((pickup) => {
+      next.boostPickups.forEach((pickup, index) => {
         if (pickup.active && (car.boost || 0) < 100) {
           const dist = Math.hypot(car.x - pickup.x, car.y - pickup.y);
           if (dist < carR + pickup.radius) {
             car.boost = Math.min(100, (car.boost || 0) + pickup.amount);
             pickup.active = false;
             pickup.respawnTimer = pickup.respawnDelay;
+            pickupsTaken.push(index);
           }
         }
       });
@@ -1026,6 +1085,7 @@ export function stepCarPhysics(state, inputs, dt) {
   for (let iter = 0; iter < SOLVER_ITERS; iter++) {
     // Autos con paredes y postes
     carList.forEach((car) => {
+      if (!isLocal(car.id)) return;
       if (field.isVertical) {
         const cx = field.width / 2;
         const goalHalf = (field.goalWidth || field.goalHeight || 180) / 2;
@@ -1092,47 +1152,50 @@ export function stepCarPhysics(state, inputs, dt) {
     // Autos entre sí (choques)
     for (let i = 0; i < carList.length; i++) {
       for (let j = i + 1; j < carList.length; j++) {
-        const a = carList[i];
-        const b = carList[j];
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy);
-        const minDist = carR * 1.8;
-        if (dist >= minDist || dist === 0) continue;
-
-        const nx = dx / dist;
-        const ny = dy / dist;
-        const overlap = minDist - dist;
-        a.x -= nx * overlap * 0.5;
-        a.y -= ny * overlap * 0.5;
-        b.x += nx * overlap * 0.5;
-        b.y += ny * overlap * 0.5;
-
-        const rvx = b.vx - a.vx;
-        const rvy = b.vy - a.vy;
-        const dot = rvx * nx + rvy * ny;
-        if (dot >= 0) continue;
-
-        const j2 = -(1 + C.restitution) * dot / 2;
-        a.vx -= j2 * nx;
-        a.vy -= j2 * ny;
-        b.vx += j2 * nx;
-        b.vy += j2 * ny;
-        a.speed = a.vx * Math.cos(a.angle) + a.vy * Math.sin(a.angle);
-        b.speed = b.vx * Math.cos(b.angle) + b.vy * Math.sin(b.angle);
+        resolvePair(carList[i], carList[j], isLocal, (a, b) => resolveCarCar(a, b, carR));
       }
     }
 
     // Colisión física autos con pelota
     carList.forEach((car) => {
-      carBallCollision(car, next.ball, halfW, halfH);
+      if (isLocal(car.id) && carBallCollision(car, next.ball, halfW, halfH)) touched = true;
     });
   }
 
   // 4. Detectar gol
   const goal = detectGoal(next.ball, field);
 
-  return { nextState: next, goal };
+  return { nextState: next, goal, touched, pickupsTaken };
+}
+
+function resolveCarCar(a, b, carR) {
+  const C = CAR_CONFIG;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy);
+  const minDist = carR * 1.8;
+  if (dist >= minDist || dist === 0) return;
+
+  const nx = dx / dist;
+  const ny = dy / dist;
+  const overlap = minDist - dist;
+  a.x -= nx * overlap * 0.5;
+  a.y -= ny * overlap * 0.5;
+  b.x += nx * overlap * 0.5;
+  b.y += ny * overlap * 0.5;
+
+  const rvx = b.vx - a.vx;
+  const rvy = b.vy - a.vy;
+  const dot = rvx * nx + rvy * ny;
+  if (dot >= 0) return;
+
+  const j2 = -(1 + C.restitution) * dot / 2;
+  a.vx -= j2 * nx;
+  a.vy -= j2 * ny;
+  b.vx += j2 * nx;
+  b.vy += j2 * ny;
+  a.speed = a.vx * Math.cos(a.angle) + a.vy * Math.sin(a.angle);
+  b.speed = b.vx * Math.cos(b.angle) + b.vy * Math.sin(b.angle);
 }
 
 function resolveCarWithGoalPost(car, carR, postX, postY) {
@@ -1182,7 +1245,7 @@ function carBallCollision(car, ball, halfW, halfH) {
   const diffY = localY - clampedY;
   const dist = Math.hypot(diffX, diffY);
 
-  if (dist >= br) return; // Sin contacto físico real
+  if (dist >= br) return false; // Sin contacto físico real
 
   // Normal en el espacio local
   let normLocalX = 0;
@@ -1245,5 +1308,6 @@ function carBallCollision(car, ball, halfW, halfH) {
     ball.vx = (ball.vx / ballSpeed) * CAR_BALL_CONFIG.maxSpeed;
     ball.vy = (ball.vy / ballSpeed) * CAR_BALL_CONFIG.maxSpeed;
   }
+  return true;
 }
 

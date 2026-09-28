@@ -1,5 +1,7 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, onValue, ref, runTransaction, set } from 'firebase/database';
+import {
+  getDatabase, onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, ref, remove, runTransaction, set,
+} from 'firebase/database';
 import { firebaseConfig } from './firebaseConfig.js';
 import { ROOM_TTL_MS, makeCode, parseRoom, serializeRoom } from './codigo-secreto/game.js';
 
@@ -55,15 +57,47 @@ export function subscribeConnection(onChange) {
   });
 }
 
-// ─── Funciones de alta frecuencia para Fútbol (bypassean el reducer stringificado) ───
-export function setFutbolInput(code, playerId, input) {
-  return set(ref(database(), `futbol/${code}/inputs/${playerId}`), input);
+// ─── Fútbol en tiempo real ───────────────────────────────────────────────────
+// Fuera del reducer de salas: son fotos que se pisan muchas veces por segundo. Cada rama se escucha
+// por separado, así la foto de un jugador no obliga a volver a bajar y armar todo lo demás.
+//   futbol/{sala}/players/{id}  foto de cada jugador (la escribe solo su dueño)
+//   futbol/{sala}/ball          la pelota (la escribe quien la tocó último)
+//   futbol/{sala}/match         saque, reloj y marcador (con transacción)
+//   futbol/{sala}/pickups/{i}   turbos agarrados (modo coches)
+export function futbolChannel(code) {
+  const db = database();
+  const base = `futbol/${code}`;
+  return {
+    publishPlayer: (id, snap) => set(ref(db, `${base}/players/${id}`), snap),
+    removePlayer: (id) => remove(ref(db, `${base}/players/${id}`)),
+    // Si se cierra la pestaña o se corta la conexión, el servidor borra la foto solo.
+    leaveOnDisconnect: (id) => onDisconnect(ref(db, `${base}/players/${id}`)).remove(),
+    publishBall: (ball) => set(ref(db, `${base}/ball`), ball),
+    publishPickup: (index, pickup) => set(ref(db, `${base}/pickups/${index}`), pickup),
+    // Si dos pantallas declaran el mismo gol a la vez, la transacción deja pasar a una sola.
+    async updateMatch(update) {
+      const result = await runTransaction(ref(db, `${base}/match`), (current) => {
+        const next = update(current);
+        return next === undefined ? undefined : next;
+      });
+      return { committed: result.committed, match: result.snapshot.val() };
+    },
+    subscribe({ onPlayer, onPlayerGone, onBall, onMatch, onPickups }) {
+      const players = ref(db, `${base}/players`);
+      const offs = [
+        onChildAdded(players, (snap) => onPlayer(snap.key, snap.val())),
+        onChildChanged(players, (snap) => onPlayer(snap.key, snap.val())),
+        onChildRemoved(players, (snap) => onPlayerGone(snap.key)),
+        onValue(ref(db, `${base}/ball`), (snap) => { if (snap.exists()) onBall(snap.val()); }),
+        onValue(ref(db, `${base}/match`), (snap) => onMatch(snap.val())),
+        onValue(ref(db, `${base}/pickups`), (snap) => onPickups(snap.val() || {})),
+      ];
+      return () => offs.forEach((off) => off());
+    },
+  };
 }
 
-export function setFutbolState(code, state) {
-  return set(ref(database(), `futbol/${code}/state`), state);
-}
-
-export function subscribeFutbolSync(code, onData) {
-  return onValue(ref(database(), `futbol/${code}`), (snap) => onData(snap.val() || {}));
+// Diferencia entre este reloj y el del servidor: con eso todas las pantallas comparten la misma hora.
+export function subscribeServerOffset(onOffset) {
+  return onValue(ref(database(), '.info/serverTimeOffset'), (snap) => onOffset(Number(snap.val()) || 0));
 }

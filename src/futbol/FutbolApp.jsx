@@ -142,9 +142,10 @@ export default function FutbolApp({ onBackToMenu }) {
     }
   }
 
-  // Cuando el canvas notifica un gol, sincronizamos con Firebase
-  async function handleGoal(team) {
-    await dispatch({ type: 'goalScored', team });
+  // Cuando el canvas notifica un gol, sincronizamos con Firebase. El número de saque hace que el
+  // mismo gol no pueda contarse dos veces.
+  async function handleGoal(team, kickoff) {
+    await dispatch({ type: 'goalScored', team, kickoff });
   }
 
   // Cuando se acaba el tiempo, terminamos el partido

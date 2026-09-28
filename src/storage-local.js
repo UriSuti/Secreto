@@ -60,38 +60,75 @@ export function subscribeConnection(onChange) {
   return () => {};
 }
 
-// ─── Funciones de alta frecuencia para Fútbol (local) ───
+// ─── Fútbol en tiempo real (local) ───────────────────────────────────────────
+// Misma interfaz que en storage-firebase.js, sobre localStorage: sirve entre pestañas del navegador.
 const FUTBOL_PREFIX = 'futbol:sync:';
 const futbolListeners = new Map();
 
-function notifyFutbol(code) {
-  const data = JSON.parse(localStorage.getItem(FUTBOL_PREFIX + code) || '{}');
+function readFutbol(code) {
+  try {
+    return JSON.parse(localStorage.getItem(FUTBOL_PREFIX + code)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function notifyFutbol(code, data = readFutbol(code)) {
   futbolListeners.get(code)?.forEach((cb) => cb(data));
 }
 
-export function setFutbolInput(code, playerId, input) {
-  const data = JSON.parse(localStorage.getItem(FUTBOL_PREFIX + code) || '{}');
-  if (!data.inputs) data.inputs = {};
-  data.inputs[playerId] = input;
+function patchFutbol(code, change) {
+  const data = readFutbol(code);
+  change(data);
   localStorage.setItem(FUTBOL_PREFIX + code, JSON.stringify(data));
-  notifyFutbol(code);
+  notifyFutbol(code, data);
 }
 
-export function setFutbolState(code, state) {
-  const data = JSON.parse(localStorage.getItem(FUTBOL_PREFIX + code) || '{}');
-  data.state = state;
-  localStorage.setItem(FUTBOL_PREFIX + code, JSON.stringify(data));
-  notifyFutbol(code);
+export function futbolChannel(code) {
+  return {
+    publishPlayer: async (id, snap) => patchFutbol(code, (d) => { d.players = { ...d.players, [id]: snap }; }),
+    removePlayer: async (id) => patchFutbol(code, (d) => { if (d.players) delete d.players[id]; }),
+    leaveOnDisconnect: async () => {},
+    publishBall: async (ball) => patchFutbol(code, (d) => { d.ball = ball; }),
+    publishPickup: async (index, pickup) => patchFutbol(code, (d) => { d.pickups = { ...d.pickups, [index]: pickup }; }),
+    async updateMatch(update) {
+      const data = readFutbol(code);
+      const next = update(data.match ?? null);
+      if (next === undefined) return { committed: false, match: data.match ?? null };
+      patchFutbol(code, (d) => { d.match = next; });
+      return { committed: true, match: next };
+    },
+    subscribe({ onPlayer, onPlayerGone, onBall, onMatch, onPickups }) {
+      // Se avisa solo lo que cambió, igual que con los eventos de Firebase.
+      const seen = { players: {}, ball: undefined, match: undefined, pickups: undefined };
+      const dispatch = (data) => {
+        const players = data.players || {};
+        for (const [id, snap] of Object.entries(players)) {
+          const json = JSON.stringify(snap);
+          if (seen.players[id] !== json) { seen.players[id] = json; onPlayer(id, snap); }
+        }
+        for (const id of Object.keys(seen.players)) {
+          if (!(id in players)) { delete seen.players[id]; onPlayerGone(id); }
+        }
+        const ball = JSON.stringify(data.ball ?? null);
+        if (ball !== seen.ball) { seen.ball = ball; if (data.ball) onBall(data.ball); }
+        const match = JSON.stringify(data.match ?? null);
+        if (match !== seen.match) { seen.match = match; onMatch(data.match ?? null); }
+        const pickups = JSON.stringify(data.pickups ?? null);
+        if (pickups !== seen.pickups) { seen.pickups = pickups; onPickups(data.pickups || {}); }
+      };
+      if (!futbolListeners.has(code)) futbolListeners.set(code, new Set());
+      const listeners = futbolListeners.get(code);
+      listeners.add(dispatch);
+      queueMicrotask(() => { if (listeners.has(dispatch)) dispatch(readFutbol(code)); });
+      return () => listeners.delete(dispatch);
+    },
+  };
 }
 
-export function subscribeFutbolSync(code, onData) {
-  if (!futbolListeners.has(code)) futbolListeners.set(code, new Set());
-  const set = futbolListeners.get(code);
-  set.add(onData);
-  queueMicrotask(() => {
-    if (set.has(onData)) onData(JSON.parse(localStorage.getItem(FUTBOL_PREFIX + code) || '{}'));
-  });
-  return () => set.delete(onData);
+export function subscribeServerOffset(onOffset) {
+  onOffset(0);
+  return () => {};
 }
 
 window.addEventListener('storage', (e) => {

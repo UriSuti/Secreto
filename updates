@@ -90,7 +90,19 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST - 0.7.3 = Arreglos de mantenimiento:
+0.7.3 = Arreglos de mantenimiento:
 - Fútbol online arreglado: las reglas de la base denegaban la rama `futbol/` (donde se sincronizan el estado del partido y los inputs), así que el modo online no funcionaba en el sitio publicado. Se agregó la regla y se desplegó.
 - Limpieza de la mudanza a carpetas: se borraron los 8 archivos sueltos de `src/` que solo reexportaban (`game.js`, `words.js`, `MainMenu.jsx`, `Credits.jsx`, `Chat.jsx`, `Options.jsx`, `Players.jsx`, `Rules.jsx`) y el único import que quedaba apuntando a uno de ellos pasa a la ruta real.
 - La version que se muestra en pantalla (APP_VERSION) estaba clavada en v0.4.2 y ahora acompaña al changelog.
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST - 0.8.0 = Fútbol: nueva sincronización multijugador (se terminó el lag del segundo jugador):
+- Cada pantalla mueve a su jugador al instante con sus teclas; ya no espera a Firebase ni lo corrige el host. Antes, 20 veces por segundo, el segundo jugador era arrastrado hacia la posición vieja que el host tenía de él y su velocidad se pisaba: por eso se trababa y el host no.
+- Cada jugador publica una foto compacta de sí mismo 20 veces por segundo (unos 100 bytes; antes el host mandaba el estado entero, hasta 2,7 KB por envío en modo coches). Quieto, solo avisa cada medio segundo.
+- Los demás jugadores se dibujan interpolando entre fotos, un poco en el pasado según lo que tarde la conexión. Si las fotos se atrasan, se los sigue simulando con la física y las teclas que tenían apretadas, y la diferencia se funde en vez de saltar.
+- La pelota la simula quien la tocó último: tu toque responde en el mismo cuadro, seas host o no.
+- Arreglado: algunos goles se contaban dos veces (los detectaban las dos pantallas). Ahora lo declara solo quien tenía la pelota, con transacción.
+- El reloj, los festejos y las cuentas regresivas usan la hora del servidor: pasan a la vez en todas las pantallas.
+- Menos trabajo: escuchas separadas por jugador, pelota y partido (antes cualquier cambio bajaba y armaba todo el estado), escrituras que nunca se encolan, el marcador ya no redibuja la interfaz 60 veces por segundo, y un gol ya no reinicia la simulación entera.
+- Si se pierde el foco de la ventana con una tecla apretada, se suelta sola (antes el jugador quedaba andando).

@@ -1,7 +1,14 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { backend } from '../storage.js';
 import { COLORS, panelStyle, ghostButton } from '../theme.js';
-import { FIELD, GOAL, PLAYER_CONFIG, CAR_CONFIG, BALL_CONFIG, CAR_BALL_CONFIG, createGameState, stepPhysics, resetPositions } from './physics.js';
+import {
+  FIELD, PLAYER_CONFIG, CAR_CONFIG, BALL_CONFIG, CAR_BALL_CONFIG, advanceBall, createGameState, resetPositions, stepPhysics,
+} from './physics.js';
+import {
+  BALL_SMOOTH_MS, CLAIM_COOLDOWN_MS, FIRST_COUNTDOWN_MS, HEARTBEAT_MS, REMOTE_SMOOTH_MS, SEND_INTERVAL_MS,
+  applyPlayerSnapshot, claimBeats, createRemote, goalMatch, initialMatch, latestWriter, matchPhase,
+  packBall, packPlayer, receiveSnapshot, sameMotion, sampleRemote, unpackInput, updateDelay,
+} from './net.js';
 
 const TEAM_COLOR = {
   red: '#e05050',
@@ -17,91 +24,35 @@ const LINE_WIDTH = 2;
 
 export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackToLobby, onLeave }) {
   const isCarMode = room.options?.vehicleMode === 'coches';
+  const matchMinutes = Number(room.options?.matchMinutes ?? 0);
+  const timed = matchMinutes > 0;
+  const initialTimeMs = timed ? matchMinutes * 60 * 1000 : 0;
+  const meId = me?.id ?? null;
+  const matchNumber = room.matchNumber ?? 0;
+
+  // El partido corre en un único bucle que dura todo el montaje. Lo que cambia de la sala se lee de
+  // refs: así una actualización (un gol, alguien que se va) no reinicia la simulación.
+  const roomRef = useRef(room);
+  roomRef.current = room;
+  const callbacksRef = useRef({ onGoal, onTimeEnd });
+  callbacksRef.current = { onGoal, onTimeEnd };
+
   const canvasRef = useRef(null);
   const stateRef = useRef(null);
-  const inputsRef = useRef({});
-  const lastSentInputRef = useRef('');
-  const lastSyncTimeRef = useRef(0);
-  const lastTimeRef = useRef(null);
-  const rafRef = useRef(null);
-  const goalCooldownRef = useRef(0);  // ms de pausa activa post gol
-  const countdownRef = useRef(2000);   // cuenta regresiva inicial (2 segundos)
-  const matchMinutes = Number(room.options?.matchMinutes ?? 0);
-  const isTimeUnlimited = matchMinutes <= 0;
-  const initialTimeMs = isTimeUnlimited ? 0 : matchMinutes * 60 * 1000;
-  const timeLeftRef = useRef(initialTimeMs);
-  const elapsedTimeRef = useRef(0);
-  const scoreRef = useRef({ red: room.score.red, blue: room.score.blue });
+  const myInputRef = useRef({});
   const camRef = useRef({ x: FIELD.width / 2, y: FIELD.height / 2 });
   const zoomScaleRef = useRef(1.0);
   const zoomKeysRef = useRef({ zoomIn: false, zoomOut: false });
   const [rotateCamera, setRotateCamera] = useState(isCarMode);
   const rotateCameraRef = useRef(isCarMode);
 
-  const isHost = room.hostId === me?.id;
-  const players = room.players;
-
-  // Sincronizar score de sala al estado local
-  useEffect(() => {
-    scoreRef.current = { red: room.score.red, blue: room.score.blue };
-  }, [room.score.red, room.score.blue]);
-
-  // Sincronización en tiempo real
-  useEffect(() => {
-    if (!code) return;
-    return backend.subscribeFutbolSync(code, (data) => {
-      if (data.inputs) {
-        inputsRef.current = { ...inputsRef.current, ...data.inputs };
-      }
-      if (!isHost && data.state && stateRef.current) {
-        const hState = data.state;
-        const cli = stateRef.current;
-        // Soft lerp para corregir desincronización
-        const dx = hState.ball.x - cli.ball.x;
-        const dy = hState.ball.y - cli.ball.y;
-        if (Math.hypot(dx, dy) > 80) {
-          stateRef.current = hState; // Snap brusco si se desincronizó demasiado
-        } else {
-          cli.ball.x += dx * 0.25;
-          cli.ball.y += dy * 0.25;
-          cli.ball.vx = hState.ball.vx;
-          cli.ball.vy = hState.ball.vy;
-          if (hState.boostPickups) {
-            cli.boostPickups = hState.boostPickups;
-          }
-          Object.keys(hState.players).forEach(pid => {
-            const pHost = hState.players[pid];
-            const pCli = cli.players[pid];
-            if (pCli && pHost) {
-              pCli.x += (pHost.x - pCli.x) * 0.25;
-              pCli.y += (pHost.y - pCli.y) * 0.25;
-              pCli.vx = pHost.vx;
-              pCli.vy = pHost.vy;
-              if (pHost.angle !== undefined) {
-                pCli.angle = pHost.angle;
-                pCli.steerAngle = pHost.steerAngle;
-                pCli.speed = pHost.speed;
-                pCli.boost = pHost.boost;
-                pCli.isBoosting = pHost.isBoosting;
-                pCli.isFlipping = pHost.isFlipping;
-                pCli.flipTime = pHost.flipTime;
-                pCli.flipCooldown = pHost.flipCooldown;
-              }
-            }
-          });
-        }
-      }
-    });
-  }, [code, isHost]);
-
-  // Estado de render para el HUD
-  const [hudTime, setHudTime] = useState(initialTimeMs);
-  const [hudScore, setHudScore] = useState({ red: room.score.red, blue: room.score.blue });
-  const [goalMsg, setGoalMsg] = useState(null);
+  // HUD: se actualiza solo cuando cambia lo que se ve, no en cada cuadro.
+  const [hud, setHud] = useState({ time: formatTime(initialTimeMs), red: room.score.red, blue: room.score.blue });
   const [showMenu, setShowMenu] = useState(false);
 
-  // Tamaño del canvas
   const [canvasSize, setCanvasSize] = useState({ w: FIELD.width, h: FIELD.height });
+  const canvasSizeRef = useRef(canvasSize);
+  canvasSizeRef.current = canvasSize;
 
   useEffect(() => {
     function computeSize() {
@@ -114,232 +65,394 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
     return () => window.removeEventListener('resize', computeSize);
   }, []);
 
-  // ─── Controles de teclado ─────────────────────────────────────────────
+  // Si alguien se va a mitad del partido, deja de dibujarse.
+  const rosterKey = room.players.map((p) => `${p.id}:${p.team}`).join('|');
   useEffect(() => {
-    const myPlayer = me ? players.find((p) => p.id === me.id) : players[0];
-    const targetId = myPlayer?.id || players[0]?.id;
-
-    function syncMyInput(inp) {
-      if (!me || !code) return;
-      const current = JSON.stringify(inp);
-      if (lastSentInputRef.current !== current) {
-        lastSentInputRef.current = current;
-        backend.setFutbolInput(code, me.id, inp).catch(() => {});
-      }
+    const state = stateRef.current;
+    if (!state) return;
+    const ids = new Set(roomRef.current.players.map((p) => p.id));
+    for (const id of Object.keys(state.players)) {
+      if (!ids.has(id)) delete state.players[id];
     }
+  }, [rosterKey]);
 
+  // ─── Controles: solo tocan el input local. Nada de esto espera a la red. ─────
+  useEffect(() => {
     function onKeyDown(e) {
       if (e.key === 'Escape') {
         e.preventDefault();
         setShowMenu((prev) => !prev);
         return;
       }
-
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Enter'].includes(e.key)) {
-        e.preventDefault();
-      }
-
-      if (targetId) {
-        if (!inputsRef.current[targetId]) inputsRef.current[targetId] = {};
-        const inp = inputsRef.current[targetId];
-        let changed = false;
-
-        if (isCarMode) {
-          // W o ArrowUp: avanzar adelante (hacia donde apunta el auto)
-          if ((e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') && !inp.accelerate) { inp.accelerate = true; changed = true; }
-          // S o ArrowDown: retroceder / frenar (dirección contraria a donde vas con W)
-          if ((e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') && !inp.brake) { inp.brake = true; changed = true; }
-          // A o ArrowLeft: girar izquierda (antihorario)
-          if ((e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') && !inp.turnLeft) { inp.turnLeft = true; changed = true; }
-          // D o ArrowRight: girar derecha (horario)
-          if ((e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') && !inp.turnRight) { inp.turnRight = true; changed = true; }
-          // Shift: BOOST continuo
-          if (e.key === 'Shift' && !inp.boost) { inp.boost = true; changed = true; }
-          // Space / Enter / X: KICK / FLIP aéreo
-          if ((e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') && !inp.kick) { inp.kick = true; changed = true; }
-        } else {
-          if ((e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') && !inp.up) { inp.up = true; changed = true; }
-          if ((e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') && !inp.down) { inp.down = true; changed = true; }
-          if ((e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') && !inp.left) { inp.left = true; changed = true; }
-          if ((e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') && !inp.right) { inp.right = true; changed = true; }
-          if ((e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') && !inp.kick) { inp.kick = true; changed = true; }
-          if (e.key === 'Shift' && !inp.shift) { inp.shift = true; changed = true; }
-        }
-
-        if (e.key === 'q' || e.key === 'Q') { zoomKeysRef.current.zoomOut = true; }
-        if (e.key === 'e' || e.key === 'E') { zoomKeysRef.current.zoomIn = true; }
-        if (isCarMode && (e.key === 'c' || e.key === 'C')) {
-          setRotateCamera((prev) => {
-            const next = !prev;
-            rotateCameraRef.current = next;
-            return next;
-          });
-        }
-        if (changed) syncMyInput(inp);
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Enter'].includes(e.key)) e.preventDefault();
+      const field = inputField(e.key, isCarMode);
+      if (field) myInputRef.current[field] = true;
+      if (e.key === 'q' || e.key === 'Q') zoomKeysRef.current.zoomOut = true;
+      if (e.key === 'e' || e.key === 'E') zoomKeysRef.current.zoomIn = true;
+      if (isCarMode && (e.key === 'c' || e.key === 'C')) {
+        setRotateCamera((prev) => {
+          rotateCameraRef.current = !prev;
+          return !prev;
+        });
       }
     }
-
     function onKeyUp(e) {
-      if (e.key === 'q' || e.key === 'Q') { zoomKeysRef.current.zoomOut = false; }
-      if (e.key === 'e' || e.key === 'E') { zoomKeysRef.current.zoomIn = false; }
-      if (targetId) {
-        if (!inputsRef.current[targetId]) inputsRef.current[targetId] = {};
-        const inp = inputsRef.current[targetId];
-        let changed = false;
-
-        if (isCarMode) {
-          if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') { inp.accelerate = false; changed = true; }
-          if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') { inp.brake = false; changed = true; }
-          if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') { inp.turnLeft = false; changed = true; }
-          if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') { inp.turnRight = false; changed = true; }
-          if (e.key === 'Shift') { inp.boost = false; changed = true; }
-          if (e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') { inp.kick = false; changed = true; }
-        } else {
-          if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') { inp.up = false; changed = true; }
-          if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') { inp.down = false; changed = true; }
-          if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') { inp.left = false; changed = true; }
-          if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') { inp.right = false; changed = true; }
-          if (e.key === ' ' || e.key === 'Enter' || e.key === 'x' || e.key === 'X') { inp.kick = false; changed = true; }
-          if (e.key === 'Shift') { inp.shift = false; changed = true; }
-        }
-
-        if (changed) syncMyInput(inp);
-      }
+      const field = inputField(e.key, isCarMode);
+      if (field) myInputRef.current[field] = false;
+      if (e.key === 'q' || e.key === 'Q') zoomKeysRef.current.zoomOut = false;
+      if (e.key === 'e' || e.key === 'E') zoomKeysRef.current.zoomIn = false;
     }
-
+    // Si la ventana pierde el foco con una tecla apretada, el keyup no llega nunca: se suelta todo.
+    function onBlur() {
+      myInputRef.current = {};
+      zoomKeysRef.current = { zoomIn: false, zoomOut: false };
+    }
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
     };
-  }, [players, me, code, isCarMode]);
+  }, [isCarMode]);
 
-  // ─── Game loop ────────────────────────────────────────────────────────
+  // ─── Red + bucle del partido ─────────────────────────────────────────────
+  // Mi jugador: tecla → movimiento → dibujo, todo en el mismo cuadro; a la red va una foto cada 50 ms.
+  // Los demás: foto → búfer → interpolación → dibujo suave, un poco en el pasado.
+  // La pelota la simula quien la tocó último; mientras la tiene otro, se interpola como a él.
   useEffect(() => {
-    stateRef.current = createGameState(players, room.options);
-    timeLeftRef.current = initialTimeMs;
-    elapsedTimeRef.current = 0;
-    goalCooldownRef.current = 0;
-    countdownRef.current = 2000; // 2 segundos iniciales
-    lastTimeRef.current = null;
-    camRef.current = { x: FIELD.width / 2, y: FIELD.height / 2 };
+    stateRef.current = createGameState(roomRef.current.players, roomRef.current.options);
+    const channel = backend.futbolChannel(code);
+    const net = {
+      offset: 0,
+      offsetReady: false,
+      match: null,
+      kickoff: -1,                               // último saque aplicado en esta pantalla
+      remotes: new Map(),                        // id → fotos recibidas de ese jugador
+      ball: { o: roomRef.current.hostId, s: 0 }, // quién simula la pelota y cuántas veces cambió de dueño
+      ballRemote: createRemote(),                // fotos de la pelota mientras la tiene otro
+      maxSeq: 0,
+      lastClaimAt: -Infinity,
+      ballOffset: { x: 0, y: 0 },                // corrección visual que se disuelve sola
+      ballJump: false,
+      ballWasGuess: false,
+      lastRenderBall: null,
+      lastPlayerSnap: null,
+      lastPlayerAt: 0,
+      lastBallSnap: null,
+      lastBallAt: 0,
+      goalSentFor: -1,
+      endNotified: false,
+      mountedAt: performance.now(),
+      stats: { sent: 0, sentBytes: 0, received: 0 },
+    };
+    const serverNow = () => Date.now() + net.offset;
+    const localSet = new Set(meId ? [meId] : []);
+    const sendPlayer = latestWriter((snap) => channel.publishPlayer(meId, snap));
+    const sendBall = latestWriter((snap) => channel.publishBall(snap));
+    if (import.meta.env.DEV) window.__futbol = { stateRef, meId, net };
+
+    function countSent(snap) {
+      net.stats.sent += 1;
+      net.stats.sentBytes += JSON.stringify(snap).length;
+    }
+
+    // Cualquiera puede arrancar el partido; la transacción deja pasar al primero. Así no depende
+    // de que el host haya cargado.
+    function ensureMatch() {
+      channel.updateMatch((current) => (
+        current && current.m === matchNumber ? undefined : initialMatch(matchNumber, serverNow(), initialTimeMs)
+      )).catch(() => {});
+    }
+
+    const offOffset = backend.subscribeServerOffset((offset) => {
+      net.offset = offset;
+      if (!net.offsetReady) {
+        net.offsetReady = true;
+        ensureMatch();
+      }
+    });
+
+    const offChannel = channel.subscribe({
+      onPlayer(id, snap) {
+        if (id === meId || !snap || snap.m !== matchNumber) return;
+        if (net.match && snap.k < net.match.k) return; // foto de antes del último gol
+        let remote = net.remotes.get(id);
+        if (!remote) {
+          remote = createRemote();
+          net.remotes.set(id, remote);
+        }
+        if (receiveSnapshot(remote, snap, serverNow())) net.stats.received += 1;
+      },
+      onPlayerGone(id) {
+        net.remotes.delete(id);
+      },
+      onBall(snap) {
+        if (!snap || snap.m !== matchNumber || snap.k !== net.kickoff) return;
+        if (snap.o === meId) return; // mi propia foto que vuelve
+        net.maxSeq = Math.max(net.maxSeq, snap.s);
+        const sameOwner = snap.o === net.ball.o && snap.s === net.ball.s;
+        if (!sameOwner && !claimBeats(snap, net.ball)) return; // un reclamo que ya perdió
+        if (!sameOwner) {
+          // Cambió de dueño: la pelota pasa a seguir el tiempo del nuevo dueño.
+          net.ball = { o: snap.o, s: snap.s };
+          net.ballRemote = createRemote();
+          net.ballJump = true;
+        }
+        receiveSnapshot(net.ballRemote, snap, serverNow());
+      },
+      onMatch(match) {
+        if (match && match.m === matchNumber) net.match = match;
+      },
+      onPickups(pickups) {
+        const list = stateRef.current?.boostPickups;
+        if (!list) return;
+        const now = serverNow();
+        for (const [index, pickup] of Object.entries(pickups)) {
+          const target = list[Number(index)];
+          if (!target || !pickup || !(pickup.r > now)) continue;
+          target.active = false;
+          target.respawnTimer = Math.max(target.respawnTimer || 0, pickup.r - now);
+        }
+      },
+    });
+    if (meId) channel.leaveOnDisconnect(meId).catch(() => {});
+
+    // Saque nuevo (arranque o después de un gol): todos a su lugar y la pelota al medio.
+    function applyKickoff(k) {
+      net.kickoff = k;
+      stateRef.current = resetPositions(stateRef.current, roomRef.current.players);
+      for (const remote of net.remotes.values()) {
+        remote.snaps.length = 0;
+        remote.guess = null;
+        remote.shown = null;
+        remote.offset = null;
+      }
+      net.ball = { o: roomRef.current.hostId, s: 0 };
+      net.ballRemote = createRemote();
+      net.maxSeq = 0;
+      net.ballOffset = { x: 0, y: 0 };
+      net.ballJump = false;
+      net.lastPlayerSnap = null;
+      net.lastBallSnap = null;
+    }
+
+    function publishMe(now) {
+      if (!meId || !net.match || now - net.lastPlayerAt < SEND_INTERVAL_MS) return;
+      const mine = stateRef.current.players[meId];
+      if (!mine) return;
+      const snap = packPlayer(mine, isCarMode, matchNumber, net.kickoff, now, myInputRef.current);
+      if (sameMotion(snap, net.lastPlayerSnap) && now - net.lastPlayerAt < HEARTBEAT_MS) return;
+      net.lastPlayerSnap = snap;
+      net.lastPlayerAt = now;
+      sendPlayer(snap);
+      countSent(snap);
+    }
+
+    function publishBall(now, force) {
+      if (!force && now - net.lastBallAt < SEND_INTERVAL_MS) return;
+      const snap = packBall(stateRef.current.ball, matchNumber, net.kickoff, meId, net.ball.s, now);
+      if (!force && sameMotion(snap, net.lastBallSnap) && now - net.lastBallAt < HEARTBEAT_MS) return;
+      net.lastBallSnap = snap;
+      net.lastBallAt = now;
+      sendBall(snap);
+      countSent(snap);
+    }
+
+    // El gol lo declara solo quien simula la pelota, y con transacción: un gol por saque.
+    function declareGoal(team, k) {
+      net.goalSentFor = k;
+      const goalsToWin = Number(roomRef.current.options?.goalsToWin || 0);
+      channel.updateMatch((current) => {
+        if (current === null) return null;
+        if (current.m !== matchNumber || current.k !== k) return undefined;
+        return goalMatch(current, team, serverNow(), timed, goalsToWin);
+      }).then(({ committed }) => {
+        if (committed) callbacksRef.current.onGoal(team, k);
+      }).catch(() => {});
+    }
+
+    let lastHud = null;
+    function updateHud(time, red, blue) {
+      const key = `${time}|${red}|${blue}`;
+      if (key === lastHud) return;
+      lastHud = key;
+      setHud({ time, red, blue });
+    }
 
     const canvas = canvasRef.current;
-
     function onWheel(e) {
       e.preventDefault();
-      if (e.deltaY > 0) {
-        // Ruedita abajo -> alejar (Zoom Out)
-        zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.08);
-      } else if (e.deltaY < 0) {
-        // Ruedita arriba -> acercar (Zoom In)
-        zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.08);
+      if (e.deltaY > 0) zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.08);
+      else if (e.deltaY < 0) zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.08);
+    }
+    canvas?.addEventListener('wheel', onWheel, { passive: false });
+
+    let raf = 0;
+    let lastTs = null;
+    function frame(ts) {
+      raf = requestAnimationFrame(frame);
+      const dt = lastTs === null ? 16 : Math.min(ts - lastTs, 50);
+      lastTs = ts;
+      const now = serverNow();
+      const match = net.match;
+      const view = match
+        ? matchPhase(match, now, timed)
+        : { phase: 'waiting', clock: initialTimeMs };
+
+      if (match && match.k !== net.kickoff && view.phase !== 'goal') applyKickoff(match.k);
+      let state = stateRef.current;
+
+      // 1. Los demás jugadores, donde estaban hace un instante (interpolado). Si sus fotos se
+      //    atrasan, se los sigue simulando con sus teclas, y cuando llegan se funde la diferencia.
+      for (const [id, remote] of net.remotes) {
+        const target = state.players[id];
+        if (!target) continue;
+        const snap = sampleRemote(remote, now - updateDelay(remote, dt), (last, ms) => guessPlayer(remote, target, last, ms, state));
+        if (!snap) continue;
+        applyPlayerSnapshot(target, snap, isCarMode);
+        blendRemote(remote, target, Boolean(snap.ex), dt);
       }
+
+      // 2. La pelota, si la tiene otro: en el mismo tiempo que su dueño, para que coincida con su auto.
+      const ballIsMine = meId !== null && net.ball.o === meId;
+      if (!ballIsMine) {
+        const ownerDelay = net.remotes.get(net.ball.o)?.delay;
+        const delay = ownerDelay ?? updateDelay(net.ballRemote, dt);
+        const snap = sampleRemote(net.ballRemote, now - delay, (b, ms) => advanceBall({ ...b }, state.field, ms));
+        if (snap) {
+          if (net.ballWasGuess && !snap.ex) net.ballJump = true;
+          net.ballWasGuess = Boolean(snap.ex);
+          state.ball.x = snap.x;
+          state.ball.y = snap.y;
+          state.ball.vx = snap.vx;
+          state.ball.vy = snap.vy;
+        }
+      }
+
+      // 3. Mi jugador: física local con mis teclas, en este mismo cuadro.
+      if (view.phase === 'playing') {
+        const seen = ballIsMine ? null : { ...state.ball };
+        const inputs = meId ? { [meId]: myInputRef.current } : {};
+        const result = stepPhysics(state, inputs, dt, { local: localSet });
+        state = result.nextState;
+        stateRef.current = state;
+
+        if (ballIsMine) {
+          publishBall(now, false);
+        } else if (result.touched && meId && ts - net.lastClaimAt >= CLAIM_COOLDOWN_MS) {
+          // La toqué yo: desde ya la simulo yo, sin esperar la confirmación de nadie.
+          net.lastClaimAt = ts;
+          net.maxSeq += 1;
+          net.ball = { o: meId, s: net.maxSeq };
+          publishBall(now, true);
+        } else {
+          // La tiene otro: el paso de física solo servía para ver si la toqué.
+          Object.assign(state.ball, seen);
+        }
+
+        for (const index of result.pickupsTaken || []) {
+          const pickup = state.boostPickups?.[index];
+          if (pickup) channel.publishPickup(index, { r: Math.round(now + pickup.respawnDelay) }).catch(() => {});
+        }
+
+        if (result.goal && net.ball.o === meId && net.goalSentFor !== match.k) declareGoal(result.goal, match.k);
+      }
+
+      publishMe(now);
+
+      if (view.phase === 'ended' && !net.endNotified) {
+        net.endNotified = true;
+        callbacksRef.current.onTimeEnd();
+      }
+
+      const score = match ? { red: match.sr, blue: match.sb } : roomRef.current.score;
+      updateHud(formatTime(view.clock), score.red, score.blue);
+
+      if (zoomKeysRef.current.zoomOut) zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.02 * (dt / 16));
+      if (zoomKeysRef.current.zoomIn) zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.02 * (dt / 16));
+
+      updateCamera(state, dt);
+      renderScene(canvas.getContext('2d'), state, smoothBall(state.ball, dt), overlayText(view, match, ts - net.mountedAt));
     }
 
-    if (canvas) {
-      canvas.addEventListener('wheel', onWheel, { passive: false });
+    // Sigue a un remoto más allá de su última foto con la física y las teclas que tenía apretadas.
+    // Se avanza de a poco desde lo ya calculado, no se rehace desde cero en cada cuadro.
+    function guessPlayer(remote, template, last, ms, state) {
+      let guess = remote.guess;
+      if (!guess || guess.from !== last || ms < guess.ms) {
+        const player = { ...template };
+        applyPlayerSnapshot(player, last, isCarMode);
+        guess = { from: last, ms: 0, player, input: unpackInput(last.in || 0), local: new Set([player.id]) };
+        remote.guess = guess;
+      }
+      while (guess.ms < ms) {
+        const step = Math.min(16, ms - guess.ms);
+        const alone = { field: state.field, options: state.options, players: { [guess.player.id]: guess.player }, ball: { ...state.ball } };
+        guess.player = stepPhysics(alone, { [guess.player.id]: guess.input }, step, { local: guess.local }).nextState.players[guess.player.id];
+        guess.ms += step;
+      }
+      return packPlayer(guess.player, isCarMode, last.m, last.k, last.t + ms, guess.input);
     }
 
-    function loop(timestamp) {
-      if (!lastTimeRef.current) lastTimeRef.current = timestamp;
-      const rawDt = timestamp - lastTimeRef.current;
-      lastTimeRef.current = timestamp;
-      const dt = Math.min(rawDt, 50);
-
-      const ctx = canvas.getContext('2d');
-
-      // 1. Cuenta regresiva previa al inicio o reinicio
-      if (countdownRef.current > 0) {
-        countdownRef.current -= dt;
-        updateCamera(stateRef.current, dt);
-        renderScene(ctx, stateRef.current, countdownText(countdownRef.current));
-        rafRef.current = requestAnimationFrame(loop);
-        return;
-      }
-
-      // 2. Pausa post-gol
-      if (goalCooldownRef.current > 0) {
-        goalCooldownRef.current -= dt;
-        if (goalCooldownRef.current <= 0) {
-          goalCooldownRef.current = 0;
-          stateRef.current = resetPositions(stateRef.current, players);
-          setGoalMsg(null);
-          countdownRef.current = 1500; // Pequeña cuenta regresiva tras el gol
-        }
-        updateCamera(stateRef.current, dt);
-        renderScene(ctx, stateRef.current, goalMsg || '¡GOL!');
-        rafRef.current = requestAnimationFrame(loop);
-        return;
-      }
-
-      // 3. Actualizar tiempo del partido
-      if (!isTimeUnlimited) {
-        if (timeLeftRef.current > 0) {
-          timeLeftRef.current = Math.max(0, timeLeftRef.current - dt);
-          setHudTime(timeLeftRef.current);
-        }
-      } else {
-        elapsedTimeRef.current += dt;
-        setHudTime(elapsedTimeRef.current);
-      }
-
-      // 4. Paso de física
-      const { nextState, goal } = stepPhysics(stateRef.current, inputsRef.current, dt);
-      stateRef.current = nextState;
-
-      // 4.5. Host transmite el estado (20 veces por segundo aprox)
-      if (isHost && code && (timestamp - lastSyncTimeRef.current > 50)) {
-        lastSyncTimeRef.current = timestamp;
-        backend.setFutbolState(code, stateRef.current).catch(() => {});
-      }
-
-      // 5. Detectar gol
-      if (goal) {
-        scoreRef.current = {
-          ...scoreRef.current,
-          [goal]: (scoreRef.current[goal] || 0) + 1,
-        };
-        const currentGoalCount = scoreRef.current[goal];
-        setHudScore({ ...scoreRef.current });
-        setGoalMsg(`¡GOL DE ${TEAM_NAME[goal]}!`);
-        goalCooldownRef.current = 2000;
-        onGoal(goal);
-
-        // Si se configuraron goles para ganar y se alcanzó la meta
-        const goalsToWin = Number(room.options?.goalsToWin || 0);
-        if (goalsToWin > 0 && currentGoalCount >= goalsToWin) {
-          setTimeout(() => {
-            onTimeEnd();
-          }, 1800);
+    // Cuando un remoto venía adivinado y llegan sus fotos reales, puede haber una diferencia: se
+    // dibuja como un desvío que se disuelve, en vez de un salto.
+    function blendRemote(remote, target, guessed, dt) {
+      const offset = remote.offset || (remote.offset = { x: 0, y: 0, a: 0 });
+      if (remote.wasGuessed && !guessed && remote.shown) {
+        offset.x = remote.shown.x - target.x;
+        offset.y = remote.shown.y - target.y;
+        offset.a = isCarMode ? angleDiff(remote.shown.a, target.angle) : 0;
+        if (Math.hypot(offset.x, offset.y) > 120) {
+          offset.x = 0;
+          offset.y = 0;
+          offset.a = 0;
         }
       }
+      remote.wasGuessed = guessed;
+      const decay = Math.exp(-dt / REMOTE_SMOOTH_MS);
+      offset.x *= decay;
+      offset.y *= decay;
+      offset.a *= decay;
+      target.x += offset.x;
+      target.y += offset.y;
+      if (isCarMode) target.angle += offset.a;
+      remote.shown = { x: target.x, y: target.y, a: target.angle };
+    }
 
-      // 6. Detectar fin de tiempo (solo si no es tiempo ilimitado)
-      if (!isTimeUnlimited && timeLeftRef.current <= 0) {
-        updateCamera(stateRef.current, dt);
-        renderScene(ctx, stateRef.current, '¡FIN DEL PARTIDO!');
-        onTimeEnd();
-        return;
+    // Cuando la pelota cambia de dueño, su posición salta un poco (pasa a otro tiempo). Esa
+    // diferencia se dibuja como un desvío que se disuelve en unos 90 ms, en vez de un salto.
+    function smoothBall(ball, dt) {
+      const offset = net.ballOffset;
+      if (net.ballJump && net.lastRenderBall) {
+        offset.x = net.lastRenderBall.x - ball.x;
+        offset.y = net.lastRenderBall.y - ball.y;
+        if (Math.hypot(offset.x, offset.y) > 150) {
+          offset.x = 0;
+          offset.y = 0;
+        }
       }
+      net.ballJump = false;
+      const decay = Math.exp(-dt / BALL_SMOOTH_MS);
+      offset.x *= decay;
+      offset.y *= decay;
+      const render = { x: ball.x + offset.x, y: ball.y + offset.y, vx: ball.vx, vy: ball.vy };
+      net.lastRenderBall = render;
+      return render;
+    }
 
-      // Actualizar zoom suave por teclado (Q/E)
-      if (zoomKeysRef.current.zoomOut) {
-        zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.02 * (dt / 16));
-      }
-      if (zoomKeysRef.current.zoomIn) {
-        zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.02 * (dt / 16));
-      }
-
-      updateCamera(stateRef.current, dt);
-      renderScene(ctx, stateRef.current, null);
-      rafRef.current = requestAnimationFrame(loop);
+    function overlayText(view, match, sinceMount) {
+      if (view.phase === 'waiting') return sinceMount < 1500 ? countdownText(FIRST_COUNTDOWN_MS) : 'Conectando…';
+      if (view.phase === 'countdown') return countdownText(view.left);
+      if (view.phase === 'goal') return `¡GOL DE ${TEAM_NAME[match.g] || ''}!`;
+      if (view.phase === 'ended') return '¡FIN DEL PARTIDO!';
+      return null;
     }
 
     function updateCamera(state, dt) {
-      // Enfocar en el jugador actual (`me`), o el primer jugador rojo, o la pelota
-      const target = (me && state.players[me.id]) || Object.values(state.players)[0] || state.ball;
+      // Enfocar en el jugador actual (`me`), o el primer jugador, o la pelota
+      const target = (meId && state.players[meId]) || Object.values(state.players)[0] || state.ball;
       if (!target) return;
 
       const isRotatingCam = isCarMode && rotateCameraRef.current;
@@ -355,30 +468,32 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       }
     }
 
-    function renderScene(ctx, state, overlayMessage) {
-      ctx.clearRect(0, 0, canvasSize.w, canvasSize.h);
+    function renderScene(ctx, state, ball, overlayMessage) {
+      const size = canvasSizeRef.current;
+      ctx.clearRect(0, 0, size.w, size.h);
 
       const field = state.field || FIELD;
       const isRotatingCam = isCarMode && rotateCameraRef.current;
-      const myCar = (me && state.players[me.id]) || Object.values(state.players)[0];
+      const myCar = (meId && state.players[meId]) || Object.values(state.players)[0];
 
       // Calcular zoom de la cámara teniendo en cuenta la orientación y modo de cámara
       const baseZoom = isRotatingCam
-        ? Math.max(0.72, Math.min(canvasSize.w / 720, canvasSize.h / 720))
+        ? Math.max(0.72, Math.min(size.w / 720, size.h / 720))
         : (field.isVertical
-            ? Math.max(0.65, Math.min(canvasSize.w / 750, canvasSize.h / 1050))
-            : Math.max(0.8, Math.min(canvasSize.w / 900, canvasSize.h / 580)));
+            ? Math.max(0.65, Math.min(size.w / 750, size.h / 1050))
+            : Math.max(0.8, Math.min(size.w / 900, size.h / 580)));
       const zoom = baseZoom * 1.15 * zoomScaleRef.current;
 
-      let cx, cy;
+      let cx;
+      let cy;
       if (isRotatingCam && myCar) {
         cx = camRef.current.x;
         cy = camRef.current.y;
       } else {
         // Clamp de la cámara para que no se salga excesivamente del campo
         const sm = field.sideMargin || 0;
-        const viewW = canvasSize.w / zoom;
-        const viewH = canvasSize.h / zoom;
+        const viewW = size.w / zoom;
+        const viewH = size.h / zoom;
         const pad = 60;
         const totalW = field.width + (field.isVertical ? sm * 2 : 0);
         const totalH = field.height + (!field.isVertical ? sm * 2 : 0);
@@ -393,8 +508,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
       ctx.save();
       // En cámara rotativa ubicamos el auto ligeramente debajo del centro (h * 0.58) para mayor visión frontal
-      const screenCenterX = canvasSize.w / 2;
-      const screenCenterY = isRotatingCam ? canvasSize.h * 0.58 : canvasSize.h / 2;
+      const screenCenterX = size.w / 2;
+      const screenCenterY = isRotatingCam ? size.h * 0.58 : size.h / 2;
       ctx.translate(screenCenterX, screenCenterY);
       ctx.scale(zoom, zoom);
 
@@ -412,7 +527,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         drawBoostPickups(ctx, state.boostPickups);
       }
       drawGoals(ctx, field);
-      drawBall(ctx, state.ball, isCarMode);
+      drawBall(ctx, ball, isCarMode);
       Object.values(state.players).forEach((p) => {
         if (isCarMode) {
           drawCar(ctx, p);
@@ -424,29 +539,18 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       ctx.restore();
 
       // Indicador de pelota fuera de pantalla (flecha + mini pelota si el balón no se ve)
-      drawOffscreenBallIndicator(
-        ctx,
-        state.ball,
-        myCar,
-        canvasSize,
-        zoom,
-        screenCenterX,
-        screenCenterY,
-        cx,
-        cy,
-        isRotatingCam
-      );
+      drawOffscreenBallIndicator(ctx, ball, myCar, size, zoom, screenCenterX, screenCenterY, cx, cy, isRotatingCam);
 
       // HUD de Coches (Rocket League Boost Meter & Flip Status)
       if (isCarMode && myCar) {
-        drawCarHUD(ctx, myCar, canvasSize);
+        drawCarHUD(ctx, myCar, size);
       }
 
       // Overlay de mensaje (Cuenta regresiva o GOL)
       if (overlayMessage) {
         ctx.save();
         ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-        ctx.fillRect(0, canvasSize.h / 2 - 50, canvasSize.w, 100);
+        ctx.fillRect(0, size.h / 2 - 50, size.w, 100);
 
         ctx.font = 'bold 42px monospace';
         ctx.textAlign = 'center';
@@ -454,17 +558,21 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         ctx.fillStyle = '#f0d36b';
         ctx.shadowColor = '#000';
         ctx.shadowBlur = 10;
-        ctx.fillText(overlayMessage, canvasSize.w / 2, canvasSize.h / 2);
+        ctx.fillText(overlayMessage, size.w / 2, size.h / 2);
         ctx.restore();
       }
     }
 
-    rafRef.current = requestAnimationFrame(loop);
+    raf = requestAnimationFrame(frame);
     return () => {
-      if (canvas) canvas.removeEventListener('wheel', onWheel);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      cancelAnimationFrame(raf);
+      canvas?.removeEventListener('wheel', onWheel);
+      offChannel();
+      offOffset();
+      if (meId) channel.removePlayer(meId).catch(() => {});
+      if (import.meta.env.DEV && window.__futbol?.net === net) delete window.__futbol;
     };
-  }, [players, room.options.matchMinutes, canvasSize.w, canvasSize.h, me, code, isHost]);
+  }, [code, meId, matchNumber, isCarMode, timed, initialTimeMs]);
 
   return (
     <div style={{ background: '#121212', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', userSelect: 'none' }}>
@@ -488,10 +596,10 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         {/* Marcador central y Reloj */}
         <div style={{ textAlign: 'center' }}>
           <div style={{ color: '#fff', fontWeight: 900, fontSize: 32, letterSpacing: 4, lineHeight: 1 }}>
-            {hudScore.red} - {hudScore.blue}
+            {hud.red} - {hud.blue}
           </div>
           <div style={{ color: '#d4af37', fontSize: 16, fontWeight: 700, marginTop: 4 }}>
-            {formatTime(hudTime)}
+            {hud.time}
           </div>
         </div>
 
@@ -675,6 +783,33 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       )}
     </div>
   );
+}
+
+function angleDiff(a, b) {
+  let d = (a ?? 0) - (b ?? 0);
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+// Qué acción del input local controla cada tecla.
+function inputField(key, isCarMode) {
+  const k = key.length === 1 ? key.toLowerCase() : key;
+  if (k === ' ' || k === 'Enter' || k === 'x') return 'kick';
+  if (isCarMode) {
+    if (k === 'w' || k === 'ArrowUp') return 'accelerate';
+    if (k === 's' || k === 'ArrowDown') return 'brake';
+    if (k === 'a' || k === 'ArrowLeft') return 'turnLeft';
+    if (k === 'd' || k === 'ArrowRight') return 'turnRight';
+    if (k === 'Shift') return 'boost';
+    return null;
+  }
+  if (k === 'w' || k === 'ArrowUp') return 'up';
+  if (k === 's' || k === 'ArrowDown') return 'down';
+  if (k === 'a' || k === 'ArrowLeft') return 'left';
+  if (k === 'd' || k === 'ArrowRight') return 'right';
+  if (k === 'Shift') return 'shift';
+  return null;
 }
 
 function countdownText(ms) {

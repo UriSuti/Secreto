@@ -128,7 +128,7 @@ mayoría es 1, así que votar equivale a elegir: el mismo código sirve para uno
 
 ## Arquitectura
 
-### La regla de oro: `src/game.js` es lógica pura
+### La regla de oro: `src/codigo-secreto/game.js` es lógica pura
 
 Todo el juego es un **reducer sin React ni red**. `applyAction(room, action, { rand, now })`
 devuelve la sala nueva, o `null` si la acción no es válida para ese estado. No lee el reloj ni
@@ -223,6 +223,58 @@ Notas sobre algunas:
   «la primera casilla roja sin destapar» va a encontrar otra vez la que ya eligió. Pasó.
 - **Los atributos `data-pick`, `data-opt`, `data-chat-list` y `data-players`** existen para poder
   manejar la app desde un navegador automatizado. No los saques.
+
+## Fútbol: sincronización en tiempo real
+
+Todo en `src/futbol/net.js` (lógica pura, con tests en `tests/futbol-net.test.js`) y el bucle de
+`FutbolGame.jsx`. Va por `futbol/{sala}` en la base, **fuera** de `rooms/`: son fotos que se pisan
+muchas veces por segundo y no pasan por el reducer ni por el tope de 30.000 caracteres.
+
+| Rama | Quién escribe | Qué es |
+|---|---|---|
+| `players/{id}` | solo ese jugador | Su foto: posición, velocidad, ángulo/turbo/flip o patada/estámina, y sus teclas en bits |
+| `ball` | quien la tocó último | Posición y velocidad, con dueño `o` y cambios de dueño `s` |
+| `match` | cualquiera, con transacción | Saque `k`, hora del servidor en que se juega `at`, reloj `c`, marcador `sr`/`sb` |
+| `pickups/{i}` | quien agarró el turbo | Hora a la que reaparece (modo coches) |
+
+Las reglas de `database.rules.json` ya permiten `futbol/{4 letras}`; sin eso el online no anda.
+
+**La regla central: cada pantalla es dueña de su jugador.** Lo mueve con la física local en el mismo
+cuadro en que se aprieta la tecla, y publica una foto cada 50 ms (quieto, cada 500). **Nunca** se
+aplica sobre el jugador local nada que venga de la red: eso era exactamente el lag del segundo
+jugador en la versión anterior, donde el host corregía a todos hacia su propia vista atrasada.
+
+- `stepPhysics(state, inputs, dt, { local })` simula solo a los de `local`. Los remotos quedan
+  donde dijo su foto, no tocan la pelota, y en un choque solo se corrige al local (el remoto se
+  corrige en su pantalla). Sin `local` simula a todos, como antes: los tests viejos usan eso.
+- Los remotos se dibujan **interpolando** entre fotos, un poco en el pasado. El retraso se ajusta
+  solo con el percentil 95 de las demoras de los últimos 3 s: sube rápido y baja despacio.
+- Si las fotos se atrasan, el remoto se sigue simulando con la física y sus teclas
+  (`guessPlayer`) y, cuando llegan las reales, la diferencia se funde en ~120 ms.
+- **La pelota la simula quien la tocó último.** Tocarla la reclama al instante (`claimBeats`: gana
+  el `s` mayor; si empatan, el id mayor). Mientras la tiene otro, se interpola en el mismo tiempo
+  que su dueño, así coincide con su auto.
+- **El gol lo declara solo quien tiene la pelota**, con transacción sobre `match` (uno por saque),
+  y la sala lo registra con `goalScored { kickoff }`, que es idempotente. `room.matchNumber` separa
+  un partido del anterior: las fotos viejas se ignoran.
+- Las escrituras pasan por `latestWriter`: como mucho 20 sin confirmar; si hay más, se descartan las
+  viejas. Nunca se arma una cola.
+
+### Cosas que ya mordieron (Fútbol)
+
+- **Firebase entrega en ráfagas y con mucha variación**: desde acá, una escritura tardó de 200 a
+  1.200 ms según el momento, y a veces no llega nada por medio segundo y después todo junto. Por
+  eso el retraso usa el percentil 95 en una ventana *de tiempo* (con el máximo, un solo pico dejaba
+  a los remotos un segundo atrasados por medio minuto) y por eso existe la extrapolación con física.
+- **Las horas de servidor de dos pantallas no coinciden**: la estimación de Firebase puede errar
+  tanto como la latencia, así que las demoras medidas pueden dar negativas. No importa, porque el
+  retraso se calcula relativo; no intentes corregirlo.
+- **Con 4 escrituras en vuelo** (el primer intento) la latencia normal frenaba el envío a ~10 fotos
+  por segundo y las fotos esperaban en cola antes de salir.
+- Para medir fluidez hay un gancho **solo en desarrollo**: `window.__futbol` (`stateRef`, `meId`,
+  `net` con los búferes, retrasos y contadores). Vite lo saca del build de producción. La métrica
+  que sirve es la *aspereza*: cuánto se aparta la velocidad dibujada de cada cuadro del promedio de
+  sus vecinos. Una aceleración pareja da ~0%; un tirón, mucho.
 
 ### Importante por cada nueva adicion al proyecto
 - El archivo `updates` (sin extensión, en la raíz) lleva un registro de las actualizaciones, por cada cambio que hagas, quiero que lo agregues ahi, si es un cambio pequeño, a la version x.y.z sumale a Z+1. Si es un cambio grande, a la version x.y.z, sumale Y+1 y establece el Z en 0. Si es un cambio gigantesco, como una gran actualizacion, a la version x.y.z sumale a X+1, y establece ambas Y,Z en 0.

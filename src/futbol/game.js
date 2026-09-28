@@ -111,14 +111,23 @@ export function applyAction(room, action) {
       next.phase = 'playing';
       next.score = { red: 0, blue: 0 };
       next.winner = null;
+      // Identifica este partido en la sincronización en tiempo real (futbol/{sala}): lo que haya
+      // quedado de un partido anterior se ignora.
+      next.matchNumber = (next.matchNumber || 0) + 1;
+      next.lastGoalKickoff = -1;
       return next;
     }
 
     case 'goalScored': {
-      // Lo manda el host cuando la pelota entra en un arco
+      // Lo manda la pantalla que tenía la pelota cuando entró en un arco.
       if (next.phase !== 'playing') return room;
-      const { team } = action; // equipo que anotó
+      const { team, kickoff } = action; // equipo que anotó y saque en el que fue
       if (!['red', 'blue'].includes(team)) return room;
+      // Un gol por saque: si el mismo gol llega dos veces, cuenta una.
+      if (Number.isInteger(kickoff)) {
+        if (kickoff <= (next.lastGoalKickoff ?? -1)) return room;
+        next.lastGoalKickoff = kickoff;
+      }
       next.score[team] = (next.score[team] || 0) + 1;
       return next;
     }
