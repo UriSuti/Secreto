@@ -22,6 +22,9 @@ const GRASS_STRIPE = '#3f8a4b';
 const LINE_COLOR = 'rgba(255,255,255,0.75)';
 const LINE_WIDTH = 2;
 
+// Espacio jugable detrás de cada arco.
+const GOAL_RUNOFF_MARGIN = 70;
+
 export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackToLobby, onLeave }) {
   const isCarMode = room.options?.vehicleMode === 'coches';
   const matchMinutes = Number(room.options?.matchMinutes ?? 0);
@@ -492,15 +495,18 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       } else {
         // Clamp de la cámara para que no se salga excesivamente del campo
         const sm = field.sideMargin || 0;
+        const gm = goalRunoffMargin(field);
         const viewW = size.w / zoom;
         const viewH = size.h / zoom;
         const pad = 60;
-        const totalW = field.width + (field.isVertical ? sm * 2 : 0);
-        const totalH = field.height + (!field.isVertical ? sm * 2 : 0);
-        const minX = Math.min(viewW / 2, totalW / 2) - (field.isVertical ? sm : 0);
-        const maxX = Math.max(viewW / 2, totalW - viewW / 2) - (field.isVertical ? sm : 0);
-        const minY = Math.min(viewH / 2, totalH / 2) - (!field.isVertical ? sm : 0);
-        const maxY = Math.max(viewH / 2, totalH - viewH / 2) - (!field.isVertical ? sm : 0);
+        const extraX = field.isVertical ? sm : gm;
+        const extraY = field.isVertical ? gm : sm;
+        const totalW = field.width + extraX * 2;
+        const totalH = field.height + extraY * 2;
+        const minX = Math.min(viewW / 2, totalW / 2) - extraX;
+        const maxX = Math.max(viewW / 2, totalW - viewW / 2) - extraX;
+        const minY = Math.min(viewH / 2, totalH / 2) - extraY;
+        const maxY = Math.max(viewH / 2, totalH - viewH / 2) - extraY;
 
         cx = Math.max(minX - pad, Math.min(maxX + pad, camRef.current.x));
         cy = Math.max(minY - pad, Math.min(maxY + pad, camRef.current.y));
@@ -827,23 +833,26 @@ function formatTime(ms) {
 
 // ─── Funciones de dibujo ───────────────────────────────────────────────────
 // ─── Funciones de dibujo ───────────────────────────────────────────────────
+function goalRunoffMargin(field = FIELD) {
+  return Number(field.goalMargin ?? field.sideMargin ?? GOAL_RUNOFF_MARGIN);
+}
+
 function drawField(ctx, field = FIELD) {
   const w = field.width;
   const h = field.height;
   const sm = field.sideMargin || 0;
+  const gm = goalRunoffMargin(field);
 
   if (field.isVertical) {
-    // Zona lateral exterior (izquierda / derecha)
-    if (sm > 0) {
+    // Área exterior completa del jugador, incluyendo las cuatro esquinas.
+    if (sm > 0 || gm > 0) {
       ctx.fillStyle = '#1a3a1f';
-      ctx.fillRect(-sm, 0, sm, h);
-      ctx.fillRect(w, 0, sm, h);
+      ctx.fillRect(-sm, -gm, w + sm * 2, h + gm * 2);
 
-      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([8, 6]);
-      ctx.strokeRect(-sm, 0, w + sm * 2, h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = 3;
       ctx.setLineDash([]);
+      ctx.strokeRect(-sm, -gm, w + sm * 2, h + gm * 2);
     }
 
     // Fondo de césped
@@ -900,17 +909,15 @@ function drawField(ctx, field = FIELD) {
     return;
   }
 
-  // Fondo extendido horizontal (zona lateral caminable)
-  if (sm > 0) {
+  // Área exterior completa del jugador, incluyendo las cuatro esquinas.
+  if (sm > 0 || gm > 0) {
     ctx.fillStyle = '#1a3a1f';
-    ctx.fillRect(0, -sm, w, sm);
-    ctx.fillRect(0, h, w, sm);
+    ctx.fillRect(-gm, -sm, w + gm * 2, h + sm * 2);
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([8, 6]);
-    ctx.strokeRect(0, -sm, w, h + sm * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 3;
     ctx.setLineDash([]);
+    ctx.strokeRect(-gm, -sm, w + gm * 2, h + sm * 2);
   }
 
   // Fondo de césped con rayas verticales

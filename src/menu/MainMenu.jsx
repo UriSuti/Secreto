@@ -23,7 +23,7 @@ const GAMES = [
     title: 'Fútbol',
     icon: '⚽',
     description: 'Juego de fútbol 2D con física real. Dos equipos, una pelota. Controlado con teclado (WASD y Flechas).',
-    badge: 'Disponible',
+    badge: 'BETA',
     available: true,
   },
 ];

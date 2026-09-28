@@ -12,6 +12,7 @@ export const MAP_CONFIGS = {
     goalDepth: 12,
     goalHeight: 180,
     sideMargin: 60,       // zona lateral caminable fuera de la cancha (arriba/abajo)
+    goalMargin: 60,        // zona exterior caminable detrás de cada arco
   },
   cancha5: {
     name: 'Cancha de 5 (Chica)',
@@ -21,6 +22,7 @@ export const MAP_CONFIGS = {
     goalDepth: 14,
     goalHeight: 220,
     sideMargin: 70,
+    goalMargin: 70,
   },
   cancha9: {
     name: 'Cancha de 9 (Grande)',
@@ -30,6 +32,7 @@ export const MAP_CONFIGS = {
     goalDepth: 16,
     goalHeight: 260,
     sideMargin: 80,
+    goalMargin: 80,
   },
   cancha11: {
     name: 'Cancha de 11 (Muy grande)',
@@ -39,6 +42,7 @@ export const MAP_CONFIGS = {
     goalDepth: 18,
     goalHeight: 300,
     sideMargin: 90,
+    goalMargin: 90,
   },
 };
 
@@ -191,6 +195,7 @@ export function resetPositions(state, players) {
       staminaCooldown: 0,
     };
   });
+
   blues.forEach((p, i) => {
     next.players[p.id] = {
       ...next.players[p.id],
@@ -293,12 +298,15 @@ export function stepPhysics(state, inputs, dt, opts) {
         if ((player.staminaCooldown ?? 0) > 0) {
           player.staminaCooldown = Math.max(0, player.staminaCooldown - dt);
         } else if ((player.stamina ?? 100) < STAMINA_CONFIG.max) {
-          player.stamina = Math.min(STAMINA_CONFIG.max, (player.stamina ?? 0) + STAMINA_CONFIG.rechargeRate * s);
+          player.stamina = Math.min(
+            STAMINA_CONFIG.max,
+            (player.stamina ?? 0) + STAMINA_CONFIG.rechargeRate * s
+          );
         }
       }
     }
 
-    // Reducción de velocidad si tiene el KICK activo (manteniendo kick sin colisionar)
+    // Reducción de velocidad si tiene el KICK activo
     if (player.isKicking) {
       const mult = PLAYER_CONFIG.kickSpeedMultiplier ?? 0.75;
       targetMaxSpeed *= mult;
@@ -316,6 +324,7 @@ export function stepPhysics(state, inputs, dt, opts) {
     player.vy *= pFriction;
 
     const speed = Math.hypot(player.vx, player.vy);
+
     if (speed > targetMaxSpeed) {
       player.vx = (player.vx / speed) * targetMaxSpeed;
       player.vy = (player.vy / speed) * targetMaxSpeed;
@@ -344,12 +353,22 @@ export function stepPhysics(state, inputs, dt, opts) {
 
     for (let i = 0; i < playerList.length; i++) {
       for (let j = i + 1; j < playerList.length; j++) {
-        resolvePair(playerList[i], playerList[j], isLocal, resolvePlayerPlayer);
+        resolvePair(
+          playerList[i],
+          playerList[j],
+          isLocal,
+          resolvePlayerPlayer
+        );
       }
     }
 
     playerList.forEach((player) => {
-      if (isLocal(player.id) && resolvePlayerBall(player, next.ball)) touched = true;
+      if (
+        isLocal(player.id) &&
+        resolvePlayerBall(player, next.ball)
+      ) {
+        touched = true;
+      }
     });
   }
 
@@ -357,6 +376,7 @@ export function stepPhysics(state, inputs, dt, opts) {
   playerList.forEach((player) => {
     if (isLocal(player.id) && player.isKicking) {
       const contacted = tryKick(player, next.ball);
+
       if (contacted) {
         touched = true;
         player.isKicking = false;
@@ -368,12 +388,19 @@ export function stepPhysics(state, inputs, dt, opts) {
   // 5. Detectar gol
   const goal = detectGoal(next.ball, field);
 
-  return { nextState: next, goal, touched };
+  return {
+    nextState: next,
+    goal,
+    touched,
+  };
 }
 
 function localCheck(opts) {
   if (!opts?.local) return () => true;
-  const local = opts.local instanceof Set ? opts.local : new Set(opts.local);
+  const local = opts.local instanceof Set
+    ? opts.local
+    : new Set(opts.local);
+
   return (id) => local.has(id);
 }
 
@@ -382,37 +409,54 @@ function localCheck(opts) {
 function resolvePair(a, b, isLocal, resolve) {
   const la = isLocal(a.id);
   const lb = isLocal(b.id);
+
   if (!la && !lb) return;
+
   if (la && lb) {
     resolve(a, b);
     return;
   }
+
   const remote = la ? b : a;
   const { x, y, vx, vy, speed } = remote;
+
   resolve(a, b);
+
   remote.x = x;
   remote.y = y;
   remote.vx = vx;
   remote.vy = vy;
-  if (speed !== undefined) remote.speed = speed;
+
+  if (speed !== undefined) {
+    remote.speed = speed;
+  }
 }
 
 // Avanza solo la pelota (rozamiento y paredes, sin jugadores). Sirve para extrapolar la pelota
 // cuando las fotos de la red se atrasan, sin que atraviese las paredes.
 export function advanceBall(ball, field, ms) {
-  const cfg = field.isVertical ? CAR_BALL_CONFIG : BALL_CONFIG;
+  const cfg = field.isVertical
+    ? CAR_BALL_CONFIG
+    : BALL_CONFIG;
+
   let left = Math.max(0, ms);
+
   while (left > 0) {
     const step = Math.min(16, left);
     const s = step / 1000;
     const fric = Math.pow(cfg.friction, s * 60);
+
     ball.vx *= fric;
     ball.vy *= fric;
+
     ball.x += ball.vx * s;
     ball.y += ball.vy * s;
+
     resolveBallWall(ball, field);
+
     left -= step;
   }
+
   return ball;
 }
 
@@ -420,24 +464,41 @@ export function advanceBall(ball, field, ms) {
 
 function resolvePlayerWall(player, field = FIELD) {
   const r = PLAYER_CONFIG.radius;
-  const w = field.wallThickness;
-  const sm = field.sideMargin || 0; // zona lateral caminable fuera de la cancha
+  const sm = Math.max(
+    0,
+    field.sideMargin || 0
+  );
 
-  // Izquierda y derecha: el jugador queda limitado por las paredes del campo
-  if (player.x - r < w) {
-    player.x = w + r;
+  const gm = Math.max(
+    0,
+    field.goalMargin ?? sm
+  );
+
+  // Para los jugadores, las líneas/paredes del rectángulo REAL de la cancha
+  // son completamente atravesables. Solo existe un límite exterior:
+  //   - arriba/abajo: sideMargin
+  //   - izquierda/derecha: goalMargin
+  // De esta forma, las zonas laterales y las zonas detrás de ambos arcos
+  // forman una única zona exterior continua, incluidas las cuatro esquinas.
+  //
+  // La pelota mantiene sus propias colisiones en resolveBallWall(), por lo que
+  // las líneas siguen siendo sólidas para ella.
+
+  if (player.x - r < -gm) {
+    player.x = -gm + r;
     player.vx = Math.abs(player.vx) * 0.4;
   }
-  if (player.x + r > field.width - w) {
-    player.x = field.width - w - r;
+
+  if (player.x + r > field.width + gm) {
+    player.x = field.width + gm - r;
     player.vx = -Math.abs(player.vx) * 0.4;
   }
 
-  // Arriba y abajo: el jugador puede caminar hasta el borde del sideMargin
   if (player.y - r < -sm) {
     player.y = -sm + r;
     player.vy = Math.abs(player.vy) * 0.4;
   }
+
   if (player.y + r > field.height + sm) {
     player.y = field.height + sm - r;
     player.vy = -Math.abs(player.vy) * 0.4;
@@ -446,13 +507,21 @@ function resolvePlayerWall(player, field = FIELD) {
 
 function resolveBallWall(ball, field = FIELD) {
   const isVert = Boolean(field.isVertical);
-  const r = isVert ? CAR_BALL_CONFIG.radius : BALL_CONFIG.radius;
-  const wallRest = isVert ? CAR_BALL_CONFIG.wallRestitution : BALL_CONFIG.wallRestitution;
+  const r = isVert
+    ? CAR_BALL_CONFIG.radius
+    : BALL_CONFIG.radius;
+
+  const wallRest = isVert
+    ? CAR_BALL_CONFIG.wallRestitution
+    : BALL_CONFIG.wallRestitution;
+
   const w = field.wallThickness;
 
   if (isVert) {
     const cx = field.width / 2;
-    const goalHalf = (field.goalWidth || field.goalHeight || 180) / 2;
+    const goalHalf =
+      (field.goalWidth || field.goalHeight || 180) / 2;
+
     const goalLeft = cx - goalHalf;
     const goalRight = cx + goalHalf;
 
@@ -461,6 +530,7 @@ function resolveBallWall(ball, field = FIELD) {
       ball.x = w + r;
       ball.vx = Math.abs(ball.vx) * wallRest;
     }
+
     if (ball.x + r > field.width - w) {
       ball.x = field.width - w - r;
       ball.vx = -Math.abs(ball.vx) * wallRest;
@@ -468,7 +538,10 @@ function resolveBallWall(ball, field = FIELD) {
 
     // Pared superior (con arco)
     if (ball.y - r < w) {
-      if (ball.x > goalLeft && ball.x < goalRight) {
+      if (
+        ball.x > goalLeft &&
+        ball.x < goalRight
+      ) {
         if (ball.y + r < 0) {}
       } else {
         ball.y = w + r;
@@ -478,7 +551,10 @@ function resolveBallWall(ball, field = FIELD) {
 
     // Pared inferior (con arco)
     if (ball.y + r > field.height - w) {
-      if (ball.x > goalLeft && ball.x < goalRight) {
+      if (
+        ball.x > goalLeft &&
+        ball.x < goalRight
+      ) {
         if (ball.y - r > field.height) {}
       } else {
         ball.y = field.height - w - r;
@@ -487,10 +563,34 @@ function resolveBallWall(ball, field = FIELD) {
     }
 
     // Postes superior e inferior
-    resolveCircleWithGoalPost(ball, r, goalLeft, w);
-    resolveCircleWithGoalPost(ball, r, goalRight, w);
-    resolveCircleWithGoalPost(ball, r, goalLeft, field.height - w);
-    resolveCircleWithGoalPost(ball, r, goalRight, field.height - w);
+    resolveCircleWithGoalPost(
+      ball,
+      r,
+      goalLeft,
+      w
+    );
+
+    resolveCircleWithGoalPost(
+      ball,
+      r,
+      goalRight,
+      w
+    );
+
+    resolveCircleWithGoalPost(
+      ball,
+      r,
+      goalLeft,
+      field.height - w
+    );
+
+    resolveCircleWithGoalPost(
+      ball,
+      r,
+      goalRight,
+      field.height - w
+    );
+
     return;
   }
 
@@ -500,51 +600,108 @@ function resolveBallWall(ball, field = FIELD) {
   const goalBottom = cy + goalHalf;
 
   if (ball.x - r < w) {
-    if (ball.y > goalTop && ball.y < goalBottom) {
+    if (
+      ball.y > goalTop &&
+      ball.y < goalBottom
+    ) {
       if (ball.x + r < 0) {}
     } else {
       ball.x = w + r;
-      ball.vx = Math.abs(ball.vx) * BALL_CONFIG.wallRestitution;
+      ball.vx =
+        Math.abs(ball.vx) *
+        BALL_CONFIG.wallRestitution;
     }
   }
 
   if (ball.x + r > field.width - w) {
-    if (ball.y > goalTop && ball.y < goalBottom) {
+    if (
+      ball.y > goalTop &&
+      ball.y < goalBottom
+    ) {
     } else {
       ball.x = field.width - w - r;
-      ball.vx = -Math.abs(ball.vx) * BALL_CONFIG.wallRestitution;
+      ball.vx =
+        -Math.abs(ball.vx) *
+        BALL_CONFIG.wallRestitution;
     }
   }
 
   if (ball.y - r < w) {
     ball.y = w + r;
-    ball.vy = Math.abs(ball.vy) * BALL_CONFIG.wallRestitution;
+    ball.vy =
+      Math.abs(ball.vy) *
+      BALL_CONFIG.wallRestitution;
   }
 
   if (ball.y + r > field.height - w) {
     ball.y = field.height - w - r;
-    ball.vy = -Math.abs(ball.vy) * BALL_CONFIG.wallRestitution;
+    ball.vy =
+      -Math.abs(ball.vy) *
+      BALL_CONFIG.wallRestitution;
   }
 
-  resolveCircleWithGoalPost(ball, r, w, goalTop);
-  resolveCircleWithGoalPost(ball, r, w, goalBottom);
-  resolveCircleWithGoalPost(ball, r, field.width - w, goalTop);
-  resolveCircleWithGoalPost(ball, r, field.width - w, goalBottom);
+  resolveCircleWithGoalPost(
+    ball,
+    r,
+    w,
+    goalTop
+  );
+
+  resolveCircleWithGoalPost(
+    ball,
+    r,
+    w,
+    goalBottom
+  );
+
+  resolveCircleWithGoalPost(
+    ball,
+    r,
+    field.width - w,
+    goalTop
+  );
+
+  resolveCircleWithGoalPost(
+    ball,
+    r,
+    field.width - w,
+    goalBottom
+  );
 }
 
-function resolveCircleWithGoalPost(ball, r, postX, postY) {
+function resolveCircleWithGoalPost(
+  ball,
+  r,
+  postX,
+  postY
+) {
   const dx = ball.x - postX;
   const dy = ball.y - postY;
   const dist = Math.hypot(dx, dy);
+
   if (dist < r && dist > 0) {
     const nx = dx / dist;
     const ny = dy / dist;
+
     ball.x = postX + nx * r;
     ball.y = postY + ny * r;
-    const dot = ball.vx * nx + ball.vy * ny;
+
+    const dot =
+      ball.vx * nx +
+      ball.vy * ny;
+
     if (dot < 0) {
-      ball.vx -= 2 * dot * nx * BALL_CONFIG.wallRestitution;
-      ball.vy -= 2 * dot * ny * BALL_CONFIG.wallRestitution;
+      ball.vx -=
+        2 *
+        dot *
+        nx *
+        BALL_CONFIG.wallRestitution;
+
+      ball.vy -=
+        2 *
+        dot *
+        ny *
+        BALL_CONFIG.wallRestitution;
     }
   }
 }
@@ -555,42 +712,77 @@ function resolvePlayerPlayer(a, b) {
   const dist = Math.hypot(dx, dy);
   const minDist = PLAYER_CONFIG.radius * 2;
 
-  if (dist >= minDist || dist === 0) return;
+  if (dist >= minDist || dist === 0) {
+    return;
+  }
 
   const nx = dx / dist;
   const ny = dy / dist;
 
   const overlap = minDist - dist;
+
   a.x -= nx * overlap * 0.5;
   a.y -= ny * overlap * 0.5;
+
   b.x += nx * overlap * 0.5;
   b.y += ny * overlap * 0.5;
 
   const rvx = b.vx - a.vx;
   const rvy = b.vy - a.vy;
-  const dot = rvx * nx + rvy * ny;
+
+  const dot =
+    rvx * nx +
+    rvy * ny;
+
   if (dot >= 0) return;
 
-  const totalMass = PLAYER_CONFIG.mass * 2;
-  const j = -(1 + PLAYER_CONFIG.restitution) * dot / totalMass;
-  a.vx -= j * PLAYER_CONFIG.mass * nx;
-  a.vy -= j * PLAYER_CONFIG.mass * ny;
-  b.vx += j * PLAYER_CONFIG.mass * nx;
-  b.vy += j * PLAYER_CONFIG.mass * ny;
+  const totalMass =
+    PLAYER_CONFIG.mass * 2;
+
+  const j =
+    -(1 + PLAYER_CONFIG.restitution) *
+    dot /
+    totalMass;
+
+  a.vx -=
+    j *
+    PLAYER_CONFIG.mass *
+    nx;
+
+  a.vy -=
+    j *
+    PLAYER_CONFIG.mass *
+    ny;
+
+  b.vx +=
+    j *
+    PLAYER_CONFIG.mass *
+    nx;
+
+  b.vy +=
+    j *
+    PLAYER_CONFIG.mass *
+    ny;
 }
 
 function resolvePlayerBall(player, ball) {
   const pr = PLAYER_CONFIG.radius;
   const br = BALL_CONFIG.radius;
+
   const dx = ball.x - player.x;
   const dy = ball.y - player.y;
+
   let dist = Math.hypot(dx, dy);
+
   const minDist = pr + br;
 
-  if (dist >= minDist) return false;
+  if (dist >= minDist) {
+    return false;
+  }
 
   let nx = 0;
   let ny = 0;
+
   if (dist > 0.0001) {
     nx = dx / dist;
     ny = dy / dist;
@@ -602,76 +794,156 @@ function resolvePlayerBall(player, ball) {
 
   if (Math.abs(ny) < 0.1) {
     ny = dy >= 0 ? 0.2 : -0.2;
+
     const len = Math.hypot(nx, ny);
+
     nx /= len;
     ny /= len;
   }
 
   const overlap = minDist - dist;
+
   ball.x += nx * overlap;
   ball.y += ny * overlap;
 
   const rvx = ball.vx - player.vx;
   const rvy = ball.vy - player.vy;
-  const dot = rvx * nx + rvy * ny;
-  if (dot >= 0) return true;
 
-  const totalMass = PLAYER_CONFIG.mass + BALL_CONFIG.mass;
-  const j = -(1 + BALL_CONFIG.playerRestitution) * dot / totalMass;
+  const dot =
+    rvx * nx +
+    rvy * ny;
 
-  ball.vx += j * PLAYER_CONFIG.mass * nx;
-  ball.vy += j * PLAYER_CONFIG.mass * ny;
+  if (dot >= 0) {
+    return true;
+  }
+
+  const totalMass =
+    PLAYER_CONFIG.mass +
+    BALL_CONFIG.mass;
+
+  const j =
+    -(1 + BALL_CONFIG.playerRestitution) *
+    dot /
+    totalMass;
+
+  ball.vx +=
+    j *
+    PLAYER_CONFIG.mass *
+    nx;
+
+  ball.vy +=
+    j *
+    PLAYER_CONFIG.mass *
+    ny;
+
   return true;
 }
 
 function tryKick(player, ball) {
   const pr = PLAYER_CONFIG.radius;
   const br = BALL_CONFIG.radius;
+
   const dx = ball.x - player.x;
   const dy = ball.y - player.y;
-  const dist = Math.hypot(dx, dy);
-  const kickDist = pr + br + PLAYER_CONFIG.kickRange;
 
-  if (dist > kickDist || dist === 0) return false;
+  const dist = Math.hypot(dx, dy);
+
+  const kickDist =
+    pr +
+    br +
+    PLAYER_CONFIG.kickRange;
+
+  if (
+    dist > kickDist ||
+    dist === 0
+  ) {
+    return false;
+  }
 
   const nx = dx / dist;
   const ny = dy / dist;
 
-  const minF = PLAYER_CONFIG.minKickForce ?? 420;
-  const maxF = PLAYER_CONFIG.maxKickForce ?? 777;
-  const decayTime = PLAYER_CONFIG.kickHoldDecayTime ?? 5.0;
+  const minF =
+    PLAYER_CONFIG.minKickForce ?? 420;
 
-  const holdProgress = Math.min(1.0, Math.max(0.0, (player.kickHoldTime || 0) / decayTime));
-  const force = maxF - holdProgress * (maxF - minF);
+  const maxF =
+    PLAYER_CONFIG.maxKickForce ?? 777;
+
+  const decayTime =
+    PLAYER_CONFIG.kickHoldDecayTime ?? 5.0;
+
+  const holdProgress =
+    Math.min(
+      1.0,
+      Math.max(
+        0.0,
+        (player.kickHoldTime || 0) /
+        decayTime
+      )
+    );
+
+  const force =
+    maxF -
+    holdProgress *
+    (maxF - minF);
 
   ball.vx += nx * force;
   ball.vy += ny * force;
 
-  const ballSpeed = Math.hypot(ball.vx, ball.vy);
-  if (ballSpeed > BALL_CONFIG.maxSpeed) {
-    ball.vx = (ball.vx / ballSpeed) * BALL_CONFIG.maxSpeed;
-    ball.vy = (ball.vy / ballSpeed) * BALL_CONFIG.maxSpeed;
+  const ballSpeed =
+    Math.hypot(
+      ball.vx,
+      ball.vy
+    );
+
+  if (
+    ballSpeed >
+    BALL_CONFIG.maxSpeed
+  ) {
+    ball.vx =
+      (ball.vx / ballSpeed) *
+      BALL_CONFIG.maxSpeed;
+
+    ball.vy =
+      (ball.vy / ballSpeed) *
+      BALL_CONFIG.maxSpeed;
   }
 
   return true;
 }
 
-function detectGoal(ball, field = FIELD) {
+function detectGoal(
+  ball,
+  field = FIELD
+) {
   const w = field.wallThickness;
 
   if (field.isVertical) {
     const cx = field.width / 2;
-    const goalHalf = (field.goalWidth || field.goalHeight || 180) / 2;
+
+    const goalHalf =
+      (field.goalWidth ||
+        field.goalHeight ||
+        180) / 2;
+
     const goalLeft = cx - goalHalf;
     const goalRight = cx + goalHalf;
 
     // Arco superior (defendido por Azul) -> gol de ROJO
-    if (ball.y < w && ball.x > goalLeft && ball.x < goalRight) {
+    if (
+      ball.y < w &&
+      ball.x > goalLeft &&
+      ball.x < goalRight
+    ) {
       return 'red';
     }
 
     // Arco inferior (defendido por Rojo) -> gol de AZUL
-    if (ball.y > field.height - w && ball.x > goalLeft && ball.x < goalRight) {
+    if (
+      ball.y > field.height - w &&
+      ball.x > goalLeft &&
+      ball.x < goalRight
+    ) {
       return 'blue';
     }
 
@@ -680,14 +952,26 @@ function detectGoal(ball, field = FIELD) {
 
   const cy = field.height / 2;
   const goalHalf = field.goalHeight / 2;
-  const goalTop = cy - goalHalf;
-  const goalBottom = cy + goalHalf;
 
-  if (ball.x < w && ball.y > goalTop && ball.y < goalBottom) {
+  const goalTop =
+    cy - goalHalf;
+
+  const goalBottom =
+    cy + goalHalf;
+
+  if (
+    ball.x < w &&
+    ball.y > goalTop &&
+    ball.y < goalBottom
+  ) {
     return 'blue';
   }
 
-  if (ball.x > field.width - w && ball.y > goalTop && ball.y < goalBottom) {
+  if (
+    ball.x > field.width - w &&
+    ball.y > goalTop &&
+    ball.y < goalBottom
+  ) {
     return 'red';
   }
 
@@ -696,15 +980,26 @@ function detectGoal(ball, field = FIELD) {
 
 function deepClone(obj) {
   const next = { ...obj };
+
   next.players = {};
-  Object.entries(obj.players).forEach(([id, p]) => {
-    next.players[id] = { ...p };
-  });
-  next.ball = { ...obj.ball };
+
+  Object.entries(obj.players)
+    .forEach(([id, p]) => {
+      next.players[id] = { ...p };
+    });
+
+  next.ball = {
+    ...obj.ball,
+  };
+
   // `field` y `options` no cambian durante el partido: se comparten en vez de copiarse cada cuadro.
   if (obj.boostPickups) {
-    next.boostPickups = obj.boostPickups.map((bp) => ({ ...bp }));
+    next.boostPickups =
+      obj.boostPickups.map(
+        (bp) => ({ ...bp })
+      );
   }
+
   return next;
 }
 
@@ -739,9 +1034,23 @@ export const CAR_CONFIG = {
 };
 
 // Estado inicial de un auto (cancha vertical: Rojo abajo apuntando hacia arriba -PI/2, Azul arriba apuntando hacia abajo PI/2)
-export function makeCarState(p, x, y, initialAngle, infiniteBoost = false) {
-  const defaultAngle = p.team === 'red' ? -Math.PI / 2 : Math.PI / 2;
-  const angle = initialAngle !== undefined ? initialAngle : defaultAngle;
+export function makeCarState(
+  p,
+  x,
+  y,
+  initialAngle,
+  infiniteBoost = false
+) {
+  const defaultAngle =
+    p.team === 'red'
+      ? -Math.PI / 2
+      : Math.PI / 2;
+
+  const angle =
+    initialAngle !== undefined
+      ? initialAngle
+      : defaultAngle;
+
   return {
     id: p.id,
     name: p.name,
@@ -751,14 +1060,16 @@ export function makeCarState(p, x, y, initialAngle, infiniteBoost = false) {
     vx: 0,
     vy: 0,
     angle,
-    steerAngle: 0,       // ángulo de ruedas delanteras relativo al auto
+    steerAngle: 0,
     speed: 0,
-    boost: infiniteBoost ? 100 : 33, // inicia con 100 si es infinito (o 33 normal)
+    boost: infiniteBoost
+      ? 100
+      : 33,
     isBoosting: false,
     isFlipping: false,
     flipTime: 0,
     flipCooldown: 0,
-    touchCooldown: 0,    // cooldown entre toquecitos a la pelota
+    touchCooldown: 0,
   };
 }
 
@@ -766,548 +1077,1606 @@ export function createBoostPickups(field) {
   const w = field.wallThickness || 14;
   const fw = field.width;
   const fh = field.height;
+
   const cx = fw / 2;
   const cy = fh / 2;
 
   const pickups = [];
   let idCounter = 1;
 
-  // 6 pads grandes (100 boost, respawn: 8000ms, radius: 18)
+  // 6 pads grandes
   const cornerPadX = w + 48;
   const cornerPadY = w + 70;
-  pickups.push({ id: `bp_${idCounter++}`, x: cornerPadX, y: cornerPadY, type: 'large', amount: 100, active: true, respawnTimer: 0, respawnDelay: 8000, radius: 18 });
-  pickups.push({ id: `bp_${idCounter++}`, x: fw - cornerPadX, y: cornerPadY, type: 'large', amount: 100, active: true, respawnTimer: 0, respawnDelay: 8000, radius: 18 });
-  pickups.push({ id: `bp_${idCounter++}`, x: cornerPadX, y: fh - cornerPadY, type: 'large', amount: 100, active: true, respawnTimer: 0, respawnDelay: 8000, radius: 18 });
-  pickups.push({ id: `bp_${idCounter++}`, x: fw - cornerPadX, y: fh - cornerPadY, type: 'large', amount: 100, active: true, respawnTimer: 0, respawnDelay: 8000, radius: 18 });
-  const sidePadX = w + 36;
-  pickups.push({ id: `bp_${idCounter++}`, x: sidePadX, y: cy, type: 'large', amount: 100, active: true, respawnTimer: 0, respawnDelay: 8000, radius: 18 });
-  pickups.push({ id: `bp_${idCounter++}`, x: fw - sidePadX, y: cy, type: 'large', amount: 100, active: true, respawnTimer: 0, respawnDelay: 8000, radius: 18 });
 
-  // 10 pads pequeños (12 boost, respawn: 4000ms, radius: 14)
-  pickups.push({ id: `bp_${idCounter++}`, x: cx, y: w + 140, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
-  pickups.push({ id: `bp_${idCounter++}`, x: cx, y: w + 240, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
-  pickups.push({ id: `bp_${idCounter++}`, x: cx, y: fh - w - 140, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
-  pickups.push({ id: `bp_${idCounter++}`, x: cx, y: fh - w - 240, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
-  pickups.push({ id: `bp_${idCounter++}`, x: cx - 85, y: cy, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
-  pickups.push({ id: `bp_${idCounter++}`, x: cx + 85, y: cy, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
-  pickups.push({ id: `bp_${idCounter++}`, x: fw * 0.28, y: fh * 0.36, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
-  pickups.push({ id: `bp_${idCounter++}`, x: fw * 0.72, y: fh * 0.36, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
-  pickups.push({ id: `bp_${idCounter++}`, x: fw * 0.28, y: fh * 0.64, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
-  pickups.push({ id: `bp_${idCounter++}`, x: fw * 0.72, y: fh * 0.64, type: 'small', amount: 12, active: true, respawnTimer: 0, respawnDelay: 4000, radius: 14 });
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: cornerPadX,
+    y: cornerPadY,
+    type: 'large',
+    amount: 100,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 8000,
+    radius: 18,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: fw - cornerPadX,
+    y: cornerPadY,
+    type: 'large',
+    amount: 100,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 8000,
+    radius: 18,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: cornerPadX,
+    y: fh - cornerPadY,
+    type: 'large',
+    amount: 100,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 8000,
+    radius: 18,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: fw - cornerPadX,
+    y: fh - cornerPadY,
+    type: 'large',
+    amount: 100,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 8000,
+    radius: 18,
+  });
+
+  const sidePadX = w + 36;
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: sidePadX,
+    y: cy,
+    type: 'large',
+    amount: 100,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 8000,
+    radius: 18,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: fw - sidePadX,
+    y: cy,
+    type: 'large',
+    amount: 100,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 8000,
+    radius: 18,
+  });
+
+  // 10 pads pequeños
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: cx,
+    y: w + 140,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: cx,
+    y: w + 240,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: cx,
+    y: fh - w - 140,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: cx,
+    y: fh - w - 240,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: cx - 85,
+    y: cy,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: cx + 85,
+    y: cy,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: fw * 0.28,
+    y: fh * 0.36,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: fw * 0.72,
+    y: fh * 0.36,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: fw * 0.28,
+    y: fh * 0.64,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
+
+  pickups.push({
+    id: `bp_${idCounter++}`,
+    x: fw * 0.72,
+    y: fh * 0.64,
+    type: 'small',
+    amount: 12,
+    active: true,
+    respawnTimer: 0,
+    respawnDelay: 4000,
+    radius: 14,
+  });
 
   return pickups;
 }
 
-function spreadPositionsVertical(count, centerX, centerY, side) {
+function spreadPositionsVertical(
+  count,
+  centerX,
+  centerY,
+  side
+) {
   if (count === 0) return [];
+
   const spacing = 80;
   const positions = [];
   const half = (count - 1) / 2;
+
   for (let i = 0; i < count; i++) {
-    const xOffset = (i - half) * spacing;
-    const yOffset = (i % 2 === 0 ? 0 : (side === 'bottom' ? 35 : -35));
-    positions.push({ x: centerX + xOffset, y: centerY + yOffset });
+    const xOffset =
+      (i - half) * spacing;
+
+    const yOffset =
+      i % 2 === 0
+        ? 0
+        : (side === 'bottom'
+            ? 35
+            : -35);
+
+    positions.push({
+      x: centerX + xOffset,
+      y: centerY + yOffset,
+    });
   }
+
   return positions;
 }
 
-// Crea el estado inicial para el modo Coches (cancha rotada 90° de abajo hacia arriba)
-export function createCarGameState(players, options = {}) {
-  const mapType = options.mapType || 'cancha3';
-  const baseField = MAP_CONFIGS[mapType] || MAP_CONFIGS.cancha3;
-  // Cancha vertical rotada 90 grados
+// Crea el estado inicial para el modo Coches
+export function createCarGameState(
+  players,
+  options = {}
+) {
+  const mapType =
+    options.mapType || 'cancha3';
+
+  const baseField =
+    MAP_CONFIGS[mapType] ||
+    MAP_CONFIGS.cancha3;
+
   const field = {
     ...baseField,
-    width: baseField.height,         // Ancho más estrecho (e.g. 680)
-    height: baseField.width,         // Largo vertical de abajo hacia arriba (e.g. 1050)
-    goalWidth: baseField.goalHeight, // Apertura horizontal del arco en paredes superior/inferior
+
+    width: baseField.height,
+    height: baseField.width,
+
+    goalWidth: baseField.goalHeight,
     goalDepth: baseField.goalDepth,
+
     isVertical: true,
   };
 
-  const reds = players.filter((p) => p.team === 'red');
-  const blues = players.filter((p) => p.team === 'blue');
+  const reds =
+    players.filter(
+      (p) => p.team === 'red'
+    );
+
+  const blues =
+    players.filter(
+      (p) => p.team === 'blue'
+    );
 
   const cx = field.width / 2;
   const cy = field.height / 2;
 
-  // Rojo abajo (y = cy + 220), mirando hacia ARRIBA (-Math.PI / 2)
-  // Azul arriba (y = cy - 220), mirando hacia ABAJO (Math.PI / 2)
-  const redPositions = spreadPositionsVertical(reds.length, cx, cy + 220, 'bottom');
-  const bluePositions = spreadPositionsVertical(blues.length, cx, cy - 220, 'top');
+  const redPositions =
+    spreadPositionsVertical(
+      reds.length,
+      cx,
+      cy + 220,
+      'bottom'
+    );
 
-  const infiniteBoost = Boolean(options.infiniteBoost);
+  const bluePositions =
+    spreadPositionsVertical(
+      blues.length,
+      cx,
+      cy - 220,
+      'top'
+    );
+
+  const infiniteBoost =
+    Boolean(options.infiniteBoost);
+
   const playerStates = {};
+
   reds.forEach((p, i) => {
-    playerStates[p.id] = makeCarState(p, redPositions[i].x, redPositions[i].y, -Math.PI / 2, infiniteBoost);
+    playerStates[p.id] =
+      makeCarState(
+        p,
+        redPositions[i].x,
+        redPositions[i].y,
+        -Math.PI / 2,
+        infiniteBoost
+      );
   });
+
   blues.forEach((p, i) => {
-    playerStates[p.id] = makeCarState(p, bluePositions[i].x, bluePositions[i].y, Math.PI / 2, infiniteBoost);
+    playerStates[p.id] =
+      makeCarState(
+        p,
+        bluePositions[i].x,
+        bluePositions[i].y,
+        Math.PI / 2,
+        infiniteBoost
+      );
   });
 
   return {
     field,
     options: { ...options },
     players: playerStates,
-    ball: { x: cx, y: cy, vx: 0, vy: 0 },
-    boostPickups: createBoostPickups(field),
+    ball: {
+      x: cx,
+      y: cy,
+      vx: 0,
+      vy: 0,
+    },
+    boostPickups:
+      createBoostPickups(field),
     goalCooldown: 0,
   };
 }
 
-// Resetea posiciones en modo coches (tras un gol)
-export function resetCarPositions(state, players) {
-  const field = state.field || {
-    ...MAP_CONFIGS.cancha3,
-    width: MAP_CONFIGS.cancha3.height,
-    height: MAP_CONFIGS.cancha3.width,
-    goalWidth: MAP_CONFIGS.cancha3.goalHeight,
-    isVertical: true,
-  };
-  const reds = players.filter((p) => p.team === 'red');
-  const blues = players.filter((p) => p.team === 'blue');
+// Resetea posiciones en modo coches
+export function resetCarPositions(
+  state,
+  players
+) {
+  const field =
+    state.field || {
+      ...MAP_CONFIGS.cancha3,
+      width: MAP_CONFIGS.cancha3.height,
+      height: MAP_CONFIGS.cancha3.width,
+      goalWidth: MAP_CONFIGS.cancha3.goalHeight,
+      isVertical: true,
+    };
+
+  const reds =
+    players.filter(
+      (p) => p.team === 'red'
+    );
+
+  const blues =
+    players.filter(
+      (p) => p.team === 'blue'
+    );
 
   const cx = field.width / 2;
   const cy = field.height / 2;
 
-  const redPositions = spreadPositionsVertical(reds.length, cx, cy + 220, 'bottom');
-  const bluePositions = spreadPositionsVertical(blues.length, cx, cy - 220, 'top');
+  const redPositions =
+    spreadPositionsVertical(
+      reds.length,
+      cx,
+      cy + 220,
+      'bottom'
+    );
+
+  const bluePositions =
+    spreadPositionsVertical(
+      blues.length,
+      cx,
+      cy - 220,
+      'top'
+    );
 
   const next = deepClone(state);
-  const infiniteBoost = Boolean(state.options?.infiniteBoost);
+
+  const infiniteBoost =
+    Boolean(
+      state.options?.infiniteBoost
+    );
 
   reds.forEach((p, i) => {
-    next.players[p.id] = makeCarState(p, redPositions[i].x, redPositions[i].y, -Math.PI / 2, infiniteBoost);
-  });
-  blues.forEach((p, i) => {
-    next.players[p.id] = makeCarState(p, bluePositions[i].x, bluePositions[i].y, Math.PI / 2, infiniteBoost);
+    next.players[p.id] =
+      makeCarState(
+        p,
+        redPositions[i].x,
+        redPositions[i].y,
+        -Math.PI / 2,
+        infiniteBoost
+      );
   });
 
-  next.ball = { x: cx, y: cy, vx: 0, vy: 0 };
-  next.boostPickups = state.boostPickups
-    ? state.boostPickups.map((bp) => ({ ...bp }))
-    : createBoostPickups(field);
+  blues.forEach((p, i) => {
+    next.players[p.id] =
+      makeCarState(
+        p,
+        bluePositions[i].x,
+        bluePositions[i].y,
+        Math.PI / 2,
+        infiniteBoost
+      );
+  });
+
+  next.ball = {
+    x: cx,
+    y: cy,
+    vx: 0,
+    vy: 0,
+  };
+
+  next.boostPickups =
+    state.boostPickups
+      ? state.boostPickups.map(
+          (bp) => ({ ...bp })
+        )
+      : createBoostPickups(field);
+
   return next;
 }
 
 /**
  * stepCarPhysics — simulación de física para el modo Coches.
  *
- * Inputs esperados: { accelerate, brake, turnLeft, turnRight, boost, kick }
+ * Inputs esperados:
+ * { accelerate, brake, turnLeft, turnRight, boost, kick }
  *
  * Mecánicas clave:
  * - El auto tiene orientación angular y velocidad escalar.
  * - Solo puede acelerar en la dirección que mira.
  * - Derrape con inercia lateral.
  * - Freno y reversa progresiva.
- * - BOOST: consumo continuo (33.3 u/s) desde medidor 0-100, velocidad punta superior (430 px/s).
- * - PICKUPS: pads en la cancha (+12 respawn 4s, +100 respawn 8s).
- * - KICK / FLIP: impulso frontal y rotación aérea con cooldown (~1.2s).
- * - PELOTA PESADA: masa 2.4, toques suaves apenas la mueven; flip conecta con enorme potencia.
+ * - BOOST.
+ * - PICKUPS.
+ * - KICK / FLIP.
+ * - PELOTA PESADA.
  */
-export function stepCarPhysics(state, inputs, dt, opts) {
+export function stepCarPhysics(
+  state,
+  inputs,
+  dt,
+  opts
+) {
   const s = dt / 1000;
-  const next = deepClone(state);
-  const field = next.field || MAP_CONFIGS.cancha3;
-  const isLocal = localCheck(opts);
+
+  const next =
+    deepClone(state);
+
+  const field =
+    next.field ||
+    MAP_CONFIGS.cancha3;
+
+  const isLocal =
+    localCheck(opts);
+
   let touched = false;
   const pickupsTaken = [];
 
   const C = CAR_CONFIG;
-  const halfW = C.width / 2;
-  const halfH = C.height / 2;
-  const carR = Math.hypot(halfW, halfH);
+
+  const halfW =
+    C.width / 2;
+
+  const halfH =
+    C.height / 2;
+
+  const carR =
+    Math.hypot(
+      halfW,
+      halfH
+    );
 
   // 0. Actualizar pickups de boost
   if (next.boostPickups) {
-    next.boostPickups.forEach((pickup) => {
-      if (!pickup.active) {
-        pickup.respawnTimer = Math.max(0, pickup.respawnTimer - dt);
-        if (pickup.respawnTimer <= 0) {
-          pickup.active = true;
-          pickup.respawnTimer = 0;
+    next.boostPickups.forEach(
+      (pickup) => {
+        if (!pickup.active) {
+          pickup.respawnTimer =
+            Math.max(
+              0,
+              pickup.respawnTimer - dt
+            );
+
+          if (
+            pickup.respawnTimer <= 0
+          ) {
+            pickup.active = true;
+            pickup.respawnTimer = 0;
+          }
         }
       }
-    });
+    );
   }
 
   // 1. Mover autos
-  Object.values(next.players).forEach((car) => {
-    if (!isLocal(car.id)) return;
-    const inp = inputs[car.id] || {};
+  Object.values(next.players)
+    .forEach((car) => {
+      if (!isLocal(car.id)) return;
 
-    // — Giro de ruedas y dirección (estilo Rocket League)
-    // A/D posicionan las ruedas delanteras (steerAngle), NO rotan el auto si está detenido.
-    // Solo cuando el auto se desplaza (con W / acelerar o S / reversa), el chasis rota hacia donde apuntan las ruedas.
-    const maxSteer = C.maxSteerAngle || 0.65;
-    const steerSpeed = C.steerSpeed || 9.0;
-    const targetSteer = (inp.turnLeft ? -maxSteer : 0) + (inp.turnRight ? maxSteer : 0);
+      const inp =
+        inputs[car.id] || {};
 
-    if (car.steerAngle === undefined) car.steerAngle = 0;
-    if (car.steerAngle < targetSteer) {
-      car.steerAngle = Math.min(targetSteer, car.steerAngle + steerSpeed * s);
-    } else if (car.steerAngle > targetSteer) {
-      car.steerAngle = Math.max(targetSteer, car.steerAngle - steerSpeed * s);
-    }
+      // Giro de ruedas
+      const maxSteer =
+        C.maxSteerAngle || 0.65;
 
-    // Rotación del chasis: SOLO si el auto tiene velocidad (no está detenido)
-    const absSpeed = Math.abs(car.speed);
-    if (absSpeed > 4 && Math.abs(car.steerAngle) > 0.01) {
-      const speedNorm = Math.min(1.2, Math.max(0.4, absSpeed / 95));
-      const turnMultiplier = C.turnRateFactor || 3.4;
-      const turnRate = (car.steerAngle / maxSteer) * turnMultiplier * speedNorm;
-      const reverseSign = car.speed < -5 ? -1 : 1;
-      car.angle += turnRate * s * reverseSign;
-    }
+      const steerSpeed =
+        C.steerSpeed || 9.0;
 
-    // — Boost
-    const isInfiniteBoost = Boolean(next.options?.infiniteBoost);
-    if (isInfiniteBoost) {
-      car.boost = 100;
-      car.isBoosting = Boolean(inp.boost);
-    } else {
-      const wantBoost = Boolean(inp.boost && (car.boost || 0) > 0);
-      if (wantBoost) {
-        car.boost = Math.max(0, (car.boost || 0) - C.boostDrainRate * s);
-        car.isBoosting = car.boost > 0;
+      const targetSteer =
+        (inp.turnLeft
+          ? -maxSteer
+          : 0) +
+        (inp.turnRight
+          ? maxSteer
+          : 0);
+
+      if (
+        car.steerAngle ===
+        undefined
+      ) {
+        car.steerAngle = 0;
+      }
+
+      if (
+        car.steerAngle <
+        targetSteer
+      ) {
+        car.steerAngle =
+          Math.min(
+            targetSteer,
+            car.steerAngle +
+              steerSpeed * s
+          );
+      } else if (
+        car.steerAngle >
+        targetSteer
+      ) {
+        car.steerAngle =
+          Math.max(
+            targetSteer,
+            car.steerAngle -
+              steerSpeed * s
+          );
+      }
+
+      // Rotación del chasis
+      const absSpeed =
+        Math.abs(car.speed);
+
+      if (
+        absSpeed > 4 &&
+        Math.abs(
+          car.steerAngle
+        ) > 0.01
+      ) {
+        const speedNorm =
+          Math.min(
+            1.2,
+            Math.max(
+              0.4,
+              absSpeed / 95
+            )
+          );
+
+        const turnMultiplier =
+          C.turnRateFactor ||
+          3.4;
+
+        const turnRate =
+          (car.steerAngle /
+            maxSteer) *
+          turnMultiplier *
+          speedNorm;
+
+        const reverseSign =
+          car.speed < -5
+            ? -1
+            : 1;
+
+        car.angle +=
+          turnRate *
+          s *
+          reverseSign;
+      }
+
+      // Boost
+      const isInfiniteBoost =
+        Boolean(
+          next.options
+            ?.infiniteBoost
+        );
+
+      if (isInfiniteBoost) {
+        car.boost = 100;
+        car.isBoosting =
+          Boolean(inp.boost);
       } else {
-        car.isBoosting = false;
+        const wantBoost =
+          Boolean(
+            inp.boost &&
+            (car.boost || 0) > 0
+          );
+
+        if (wantBoost) {
+          car.boost =
+            Math.max(
+              0,
+              (car.boost || 0) -
+                C.boostDrainRate * s
+            );
+
+          car.isBoosting =
+            car.boost > 0;
+        } else {
+          car.isBoosting = false;
+        }
       }
-    }
 
-    // — Flip / Kick (espacio)
-    if (car.flipCooldown > 0) {
-      car.flipCooldown = Math.max(0, car.flipCooldown - dt);
-    }
-    if (car.isFlipping) {
-      car.flipTime = Math.max(0, car.flipTime - dt);
-      if (car.flipTime <= 0) {
-        car.isFlipping = false;
+      // Flip / Kick
+      if (
+        car.flipCooldown > 0
+      ) {
+        car.flipCooldown =
+          Math.max(
+            0,
+            car.flipCooldown - dt
+          );
       }
-    }
-    // — Cooldown entre toquecitos a la pelota
-    if (car.touchCooldown > 0) {
-      car.touchCooldown = Math.max(0, car.touchCooldown - dt);
-    }
 
-    if (inp.kick && !car.isFlipping && car.flipCooldown <= 0) {
-      car.isFlipping = true;
-      car.flipTime = C.flipDuration;
-      car.flipCooldown = C.flipCooldown;
-      // Impulso físico frontal inmediato
-      const forwardImpulse = C.flipImpulse;
-      car.speed = Math.min(C.maxSpeedWithBoost, Math.max(car.speed + forwardImpulse, forwardImpulse));
-      // Mini dash posicional hacia adelante para que el flip se sienta como un salto real
-      const dashDist = C.flipDashDistance || 30;
-      car.x += Math.cos(car.angle) * dashDist;
-      car.y += Math.sin(car.angle) * dashDist;
-    }
+      if (car.isFlipping) {
+        car.flipTime =
+          Math.max(
+            0,
+            car.flipTime - dt
+          );
 
-    // — Aceleración / freno / marcha atrás
-    const maxSpd = car.isBoosting ? C.maxSpeedWithBoost : C.maxSpeed;
-    const accelRate = car.isBoosting ? (C.accel + C.boostAccel) : C.accel;
+        if (
+          car.flipTime <= 0
+        ) {
+          car.isFlipping = false;
+        }
+      }
 
-    if (car.isBoosting) {
-      // El boost empuja fuerte hacia adelante; también funciona si no se presiona accelerate
-      car.speed = Math.min(maxSpd, car.speed + accelRate * s);
-    } else if (car.speed > C.maxSpeed) {
-      // Post-boost: desacelera rápido de vuelta a la velocidad normal
-      car.speed = Math.max(C.maxSpeed, car.speed - C.brakeForce * 3.0 * s);
-    } else if (inp.accelerate && !inp.brake) {
-      car.speed = Math.min(maxSpd, car.speed + accelRate * s);
-    } else if (inp.brake) {
-      if (car.speed > 0) {
-        car.speed -= C.brakeForce * s;
-        if (car.speed <= 0) {
+      if (
+        car.touchCooldown > 0
+      ) {
+        car.touchCooldown =
+          Math.max(
+            0,
+            car.touchCooldown - dt
+          );
+      }
+
+      if (
+        inp.kick &&
+        !car.isFlipping &&
+        car.flipCooldown <= 0
+      ) {
+        car.isFlipping = true;
+        car.flipTime =
+          C.flipDuration;
+
+        car.flipCooldown =
+          C.flipCooldown;
+
+        const forwardImpulse =
+          C.flipImpulse;
+
+        car.speed =
+          Math.min(
+            C.maxSpeedWithBoost,
+            Math.max(
+              car.speed +
+                forwardImpulse,
+              forwardImpulse
+            )
+          );
+
+        const dashDist =
+          C.flipDashDistance ||
+          30;
+
+        car.x +=
+          Math.cos(car.angle) *
+          dashDist;
+
+        car.y +=
+          Math.sin(car.angle) *
+          dashDist;
+      }
+
+      // Aceleración / freno
+      const maxSpd =
+        car.isBoosting
+          ? C.maxSpeedWithBoost
+          : C.maxSpeed;
+
+      const accelRate =
+        car.isBoosting
+          ? C.accel +
+            C.boostAccel
+          : C.accel;
+
+      if (car.isBoosting) {
+        car.speed =
+          Math.min(
+            maxSpd,
+            car.speed +
+              accelRate * s
+          );
+      } else if (
+        car.speed > C.maxSpeed
+      ) {
+        car.speed =
+          Math.max(
+            C.maxSpeed,
+            car.speed -
+              C.brakeForce *
+              3.0 *
+              s
+          );
+      } else if (
+        inp.accelerate &&
+        !inp.brake
+      ) {
+        car.speed =
+          Math.min(
+            maxSpd,
+            car.speed +
+              accelRate * s
+          );
+      } else if (inp.brake) {
+        if (car.speed > 0) {
+          car.speed -=
+            C.brakeForce * s;
+
+          if (car.speed <= 0) {
+            car.speed = 0;
+            car.vx = 0;
+            car.vy = 0;
+          }
+        } else {
+          car.speed =
+            Math.max(
+              -C.maxSpeedReverse,
+              car.speed -
+                C.accel *
+                0.6 *
+                s
+            );
+        }
+      } else {
+        const friction =
+          Math.pow(
+            C.friction,
+            s * 60
+          );
+
+        car.speed *= friction;
+
+        if (
+          Math.abs(car.speed) < 2
+        ) {
           car.speed = 0;
           car.vx = 0;
           car.vy = 0;
         }
-      } else {
-        car.speed = Math.max(-C.maxSpeedReverse, car.speed - C.accel * 0.6 * s);
       }
-    } else {
-      // Fricción longitudinal
-      const friction = Math.pow(C.friction, s * 60);
-      car.speed *= friction;
-      if (Math.abs(car.speed) < 2) {
-        car.speed = 0;
-        car.vx = 0;
-        car.vy = 0;
+
+      // Descomposición del movimiento
+      const fwdX =
+        Math.cos(car.angle);
+
+      const fwdY =
+        Math.sin(car.angle);
+
+      const targetVx =
+        fwdX * car.speed;
+
+      const targetVy =
+        fwdY * car.speed;
+
+      const latFric =
+        Math.pow(
+          C.lateralFriction,
+          s * 60
+        );
+
+      car.vx =
+        car.vx * latFric +
+        targetVx *
+          (1 - latFric);
+
+      car.vy =
+        car.vy * latFric +
+        targetVy *
+          (1 - latFric);
+
+      car.speed =
+        car.vx * fwdX +
+        car.vy * fwdY;
+
+      car.x +=
+        car.vx * s;
+
+      car.y +=
+        car.vy * s;
+
+      // Recolección de pickups
+      if (
+        next.boostPickups &&
+        (car.boost || 0) < 100
+      ) {
+        next.boostPickups
+          .forEach(
+            (pickup, index) => {
+              if (
+                pickup.active &&
+                (car.boost || 0) < 100
+              ) {
+                const dist =
+                  Math.hypot(
+                    car.x -
+                      pickup.x,
+                    car.y -
+                      pickup.y
+                  );
+
+                if (
+                  dist <
+                  carR +
+                    pickup.radius
+                ) {
+                  car.boost =
+                    Math.min(
+                      100,
+                      (car.boost || 0) +
+                        pickup.amount
+                    );
+
+                  pickup.active =
+                    false;
+
+                  pickup.respawnTimer =
+                    pickup.respawnDelay;
+
+                  pickupsTaken.push(
+                    index
+                  );
+                }
+              }
+            }
+          );
       }
-    }
+    });
 
-    // — Descomposición del movimiento e inercia / derrape
-    const fwdX = Math.cos(car.angle);
-    const fwdY = Math.sin(car.angle);
+  // 2. Mover pelota
+  const ballFric =
+    Math.pow(
+      CAR_BALL_CONFIG.friction,
+      s * 60
+    );
 
-    const targetVx = fwdX * car.speed;
-    const targetVy = fwdY * car.speed;
+  next.ball.vx *=
+    ballFric;
 
-    const latFric = Math.pow(C.lateralFriction, s * 60);
-    car.vx = car.vx * latFric + targetVx * (1 - latFric);
-    car.vy = car.vy * latFric + targetVy * (1 - latFric);
+  next.ball.vy *=
+    ballFric;
 
-    car.speed = car.vx * fwdX + car.vy * fwdY;
+  next.ball.x +=
+    next.ball.vx * s;
 
-    car.x += car.vx * s;
-    car.y += car.vy * s;
+  next.ball.y +=
+    next.ball.vy * s;
 
-    // — Recolección de pickups de Boost
-    if (next.boostPickups && (car.boost || 0) < 100) {
-      next.boostPickups.forEach((pickup, index) => {
-        if (pickup.active && (car.boost || 0) < 100) {
-          const dist = Math.hypot(car.x - pickup.x, car.y - pickup.y);
-          if (dist < carR + pickup.radius) {
-            car.boost = Math.min(100, (car.boost || 0) + pickup.amount);
-            pickup.active = false;
-            pickup.respawnTimer = pickup.respawnDelay;
-            pickupsTaken.push(index);
-          }
-        }
-      });
-    }
-  });
+  // 3. Resolución de colisiones
+  const carList =
+    Object.values(
+      next.players
+    );
 
-  // 2. Mover pelota con fricción de pelota pesada
-  const ballFric = Math.pow(CAR_BALL_CONFIG.friction, s * 60);
-  next.ball.vx *= ballFric;
-  next.ball.vy *= ballFric;
-  next.ball.x += next.ball.vx * s;
-  next.ball.y += next.ball.vy * s;
+  const w =
+    field.wallThickness;
 
-  // 3. Resolución de colisiones (iterativo para estabilidad)
-  const carList = Object.values(next.players);
-  const w = field.wallThickness;
-  const sm = field.sideMargin || 0;
+  const sm =
+    field.sideMargin || 0;
+
+  const gm =
+    field.goalMargin ?? sm;
 
   const SOLVER_ITERS = 3;
-  for (let iter = 0; iter < SOLVER_ITERS; iter++) {
-    // Autos con paredes y postes
-    carList.forEach((car) => {
-      if (!isLocal(car.id)) return;
-      if (field.isVertical) {
-        const cx = field.width / 2;
-        const goalHalf = (field.goalWidth || field.goalHeight || 180) / 2;
-        const goalLeft = cx - goalHalf;
-        const goalRight = cx + goalHalf;
 
-        // Borde izquierdo y derecho
-        if (car.x - carR < -sm) {
-          car.x = -sm + carR;
-          if (car.vx < 0) { car.vx *= -0.3; car.speed *= 0.3; }
-        }
-        if (car.x + carR > field.width + sm) {
-          car.x = field.width + sm - carR;
-          if (car.vx > 0) { car.vx *= -0.3; car.speed *= 0.3; }
-        }
-        // Borde superior e inferior
-        if (car.y - carR < w) {
-          car.y = w + carR;
-          if (car.vy < 0) { car.vy *= -0.3; car.speed *= 0.3; }
-        }
-        if (car.y + carR > field.height - w) {
-          car.y = field.height - w - carR;
-          if (car.vy > 0) { car.vy *= -0.3; car.speed *= 0.3; }
+  for (
+    let iter = 0;
+    iter < SOLVER_ITERS;
+    iter++
+  ) {
+    carList.forEach(
+      (car) => {
+        if (!isLocal(car.id)) {
+          return;
         }
 
-        // 4 postes (superior e inferior)
-        resolveCarWithGoalPost(car, carR, goalLeft, w);
-        resolveCarWithGoalPost(car, carR, goalRight, w);
-        resolveCarWithGoalPost(car, carR, goalLeft, field.height - w);
-        resolveCarWithGoalPost(car, carR, goalRight, field.height - w);
-      } else {
-        const cy = field.height / 2;
-        const goalHalf = field.goalHeight / 2;
-        const goalTop = cy - goalHalf;
-        const goalBottom = cy + goalHalf;
+        if (field.isVertical) {
+          const cx =
+            field.width / 2;
 
-        if (car.x - carR < w) {
-          car.x = w + carR;
-          if (car.vx < 0) { car.vx *= -0.3; car.speed *= 0.3; }
-        }
-        if (car.x + carR > field.width - w) {
-          car.x = field.width - w - carR;
-          if (car.vx > 0) { car.vx *= -0.3; car.speed *= 0.3; }
-        }
-        if (car.y - carR < -sm) {
-          car.y = -sm + carR;
-          if (car.vy < 0) { car.vy *= -0.3; car.speed *= 0.3; }
-        }
-        if (car.y + carR > field.height + sm) {
-          car.y = field.height + sm - carR;
-          if (car.vy > 0) { car.vy *= -0.3; car.speed *= 0.3; }
-        }
+          const goalHalf =
+            (
+              field.goalWidth ||
+              field.goalHeight ||
+              180
+            ) / 2;
 
-        resolveCarWithGoalPost(car, carR, w, goalTop);
-        resolveCarWithGoalPost(car, carR, w, goalBottom);
-        resolveCarWithGoalPost(car, carR, field.width - w, goalTop);
-        resolveCarWithGoalPost(car, carR, field.width - w, goalBottom);
+          const goalLeft =
+            cx - goalHalf;
+
+          const goalRight =
+            cx + goalHalf;
+
+          // Borde izquierdo
+          if (
+            car.x - carR < -gm
+          ) {
+            car.x =
+              -gm + carR;
+
+            if (
+              car.vx < 0
+            ) {
+              car.vx *= -0.3;
+              car.speed *= 0.3;
+            }
+          }
+
+          // Borde derecho
+          if (
+            car.x + carR >
+            field.width + gm
+          ) {
+            car.x =
+              field.width +
+              gm -
+              carR;
+
+            if (
+              car.vx > 0
+            ) {
+              car.vx *= -0.3;
+              car.speed *= 0.3;
+            }
+          }
+
+          // Borde superior
+          if (
+            car.y - carR <
+            -gm
+          ) {
+            car.y =
+              -gm + carR;
+
+            if (
+              car.vy < 0
+            ) {
+              car.vy *= -0.3;
+              car.speed *= 0.3;
+            }
+          }
+
+          // Borde inferior
+          if (
+            car.y + carR >
+            field.height + gm
+          ) {
+            car.y =
+              field.height +
+              gm -
+              carR;
+
+            if (
+              car.vy > 0
+            ) {
+              car.vy *= -0.3;
+              car.speed *= 0.3;
+            }
+          }
+
+          resolveCarWithGoalPost(
+            car,
+            carR,
+            goalLeft,
+            w
+          );
+
+          resolveCarWithGoalPost(
+            car,
+            carR,
+            goalRight,
+            w
+          );
+
+          resolveCarWithGoalPost(
+            car,
+            carR,
+            goalLeft,
+            field.height - w
+          );
+
+          resolveCarWithGoalPost(
+            car,
+            carR,
+            goalRight,
+            field.height - w
+          );
+        } else {
+          const cy =
+            field.height / 2;
+
+          const goalHalf =
+            field.goalHeight / 2;
+
+          const goalTop =
+            cy - goalHalf;
+
+          const goalBottom =
+            cy + goalHalf;
+
+          // Borde izquierdo
+          if (
+            car.x - carR <
+            -gm
+          ) {
+            car.x =
+              -gm + carR;
+
+            if (
+              car.vx < 0
+            ) {
+              car.vx *= -0.3;
+              car.speed *= 0.3;
+            }
+          }
+
+          // Borde derecho
+          if (
+            car.x + carR >
+            field.width + gm
+          ) {
+            car.x =
+              field.width +
+              gm -
+              carR;
+
+            if (
+              car.vx > 0
+            ) {
+              car.vx *= -0.3;
+              car.speed *= 0.3;
+            }
+          }
+
+          // Borde superior
+          if (
+            car.y - carR <
+            -sm
+          ) {
+            car.y =
+              -sm + carR;
+
+            if (
+              car.vy < 0
+            ) {
+              car.vy *= -0.3;
+              car.speed *= 0.3;
+            }
+          }
+
+          // Borde inferior
+          if (
+            car.y + carR >
+            field.height + sm
+          ) {
+            car.y =
+              field.height +
+              sm -
+              carR;
+
+            if (
+              car.vy > 0
+            ) {
+              car.vy *= -0.3;
+              car.speed *= 0.3;
+            }
+          }
+
+          resolveCarWithGoalPost(
+            car,
+            carR,
+            w,
+            goalTop
+          );
+
+          resolveCarWithGoalPost(
+            car,
+            carR,
+            w,
+            goalBottom
+          );
+
+          resolveCarWithGoalPost(
+            car,
+            carR,
+            field.width - w,
+            goalTop
+          );
+
+          resolveCarWithGoalPost(
+            car,
+            carR,
+            field.width - w,
+            goalBottom
+          );
+        }
       }
-    });
+    );
 
-    // Rebote pelota con paredes y postes
-    resolveBallWall(next.ball, field);
+    // Rebote pelota
+    resolveBallWall(
+      next.ball,
+      field
+    );
 
-    // Autos entre sí (choques)
-    for (let i = 0; i < carList.length; i++) {
-      for (let j = i + 1; j < carList.length; j++) {
-        resolvePair(carList[i], carList[j], isLocal, (a, b) => resolveCarCar(a, b, carR));
+    // Autos entre sí
+    for (
+      let i = 0;
+      i < carList.length;
+      i++
+    ) {
+      for (
+        let j = i + 1;
+        j < carList.length;
+        j++
+      ) {
+        resolvePair(
+          carList[i],
+          carList[j],
+          isLocal,
+          (a, b) =>
+            resolveCarCar(
+              a,
+              b,
+              carR
+            )
+        );
       }
     }
 
-    // Colisión física autos con pelota
-    carList.forEach((car) => {
-      if (isLocal(car.id) && carBallCollision(car, next.ball, halfW, halfH)) touched = true;
-    });
+    // Autos con pelota
+    carList.forEach(
+      (car) => {
+        if (
+          isLocal(car.id) &&
+          carBallCollision(
+            car,
+            next.ball,
+            halfW,
+            halfH
+          )
+        ) {
+          touched = true;
+        }
+      }
+    );
   }
 
   // 4. Detectar gol
-  const goal = detectGoal(next.ball, field);
+  const goal =
+    detectGoal(
+      next.ball,
+      field
+    );
 
-  return { nextState: next, goal, touched, pickupsTaken };
+  return {
+    nextState: next,
+    goal,
+    touched,
+    pickupsTaken,
+  };
 }
 
-function resolveCarCar(a, b, carR) {
-  const C = CAR_CONFIG;
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const dist = Math.hypot(dx, dy);
-  const minDist = carR * 1.8;
-  if (dist >= minDist || dist === 0) return;
+function resolveCarCar(
+  a,
+  b,
+  carR
+) {
+  const C =
+    CAR_CONFIG;
 
-  const nx = dx / dist;
-  const ny = dy / dist;
-  const overlap = minDist - dist;
-  a.x -= nx * overlap * 0.5;
-  a.y -= ny * overlap * 0.5;
-  b.x += nx * overlap * 0.5;
-  b.y += ny * overlap * 0.5;
+  const dx =
+    b.x - a.x;
 
-  const rvx = b.vx - a.vx;
-  const rvy = b.vy - a.vy;
-  const dot = rvx * nx + rvy * ny;
-  if (dot >= 0) return;
+  const dy =
+    b.y - a.y;
 
-  const j2 = -(1 + C.restitution) * dot / 2;
-  a.vx -= j2 * nx;
-  a.vy -= j2 * ny;
-  b.vx += j2 * nx;
-  b.vy += j2 * ny;
-  a.speed = a.vx * Math.cos(a.angle) + a.vy * Math.sin(a.angle);
-  b.speed = b.vx * Math.cos(b.angle) + b.vy * Math.sin(b.angle);
+  const dist =
+    Math.hypot(
+      dx,
+      dy
+    );
+
+  const minDist =
+    carR * 1.8;
+
+  if (
+    dist >= minDist ||
+    dist === 0
+  ) {
+    return;
+  }
+
+  const nx =
+    dx / dist;
+
+  const ny =
+    dy / dist;
+
+  const overlap =
+    minDist - dist;
+
+  a.x -=
+    nx *
+    overlap *
+    0.5;
+
+  a.y -=
+    ny *
+    overlap *
+    0.5;
+
+  b.x +=
+    nx *
+    overlap *
+    0.5;
+
+  b.y +=
+    ny *
+    overlap *
+    0.5;
+
+  const rvx =
+    b.vx - a.vx;
+
+  const rvy =
+    b.vy - a.vy;
+
+  const dot =
+    rvx * nx +
+    rvy * ny;
+
+  if (
+    dot >= 0
+  ) {
+    return;
+  }
+
+  const j2 =
+    -(1 + C.restitution) *
+    dot /
+    2;
+
+  a.vx -=
+    j2 * nx;
+
+  a.vy -=
+    j2 * ny;
+
+  b.vx +=
+    j2 * nx;
+
+  b.vy +=
+    j2 * ny;
+
+  a.speed =
+    a.vx *
+      Math.cos(a.angle) +
+    a.vy *
+      Math.sin(a.angle);
+
+  b.speed =
+    b.vx *
+      Math.cos(b.angle) +
+    b.vy *
+      Math.sin(b.angle);
 }
 
-function resolveCarWithGoalPost(car, carR, postX, postY) {
-  const dx = car.x - postX;
-  const dy = car.y - postY;
-  const dist = Math.hypot(dx, dy);
-  const minDist = carR + 5;
-  if (dist < minDist && dist > 0) {
-    const nx = dx / dist;
-    const ny = dy / dist;
-    car.x = postX + nx * minDist;
-    car.y = postY + ny * minDist;
-    const dot = car.vx * nx + car.vy * ny;
-    if (dot < 0) {
-      car.vx -= 1.3 * dot * nx;
-      car.vy -= 1.3 * dot * ny;
-      car.speed *= 0.5;
+function resolveCarWithGoalPost(
+  car,
+  carR,
+  postX,
+  postY
+) {
+  const dx =
+    car.x - postX;
+
+  const dy =
+    car.y - postY;
+
+  const dist =
+    Math.hypot(
+      dx,
+      dy
+    );
+
+  const minDist =
+    carR + 5;
+
+  if (
+    dist < minDist &&
+    dist > 0
+  ) {
+    const nx =
+      dx / dist;
+
+    const ny =
+      dy / dist;
+
+    car.x =
+      postX +
+      nx *
+      minDist;
+
+    car.y =
+      postY +
+      ny *
+      minDist;
+
+    const dot =
+      car.vx * nx +
+      car.vy * ny;
+
+    if (
+      dot < 0
+    ) {
+      car.vx -=
+        1.3 *
+        dot *
+        nx;
+
+      car.vy -=
+        1.3 *
+        dot *
+        ny;
+
+      car.speed *=
+        0.5;
     }
   }
 }
 
 /**
- * Colisión física de un auto con la pelota en modo coches (cuerpo OBB).
- * - Pelota pesada (mass 2.4 vs 0.45): toques suaves y autos lentos apenas la mueven.
- * - Autos veloces producen impacto sólido pero controlado.
- * - KICK / FLIP (Space): vence la masa pesada y proyecta la pelota con impulso masivo estilo Rocket League.
- * - Si se ejecuta flip lejos de la pelota, solo se realiza el salto físico sin afectar a distancia.
+ * Colisión física de un auto con la pelota en modo coches.
  */
-function carBallCollision(car, ball, halfW, halfH) {
-  const br = CAR_BALL_CONFIG.radius;
-  const cos = Math.cos(car.angle);
-  const sin = Math.sin(car.angle);
+function carBallCollision(
+  car,
+  ball,
+  halfW,
+  halfH
+) {
+  const br =
+    CAR_BALL_CONFIG.radius;
+
+  const cos =
+    Math.cos(car.angle);
+
+  const sin =
+    Math.sin(car.angle);
 
   // Vector desde el centro del auto hasta el centro de la pelota
-  const dx = ball.x - car.x;
-  const dy = ball.y - car.y;
+  const dx =
+    ball.x - car.x;
 
-  // Transformar al espacio local del auto (+X = adelante / frente, +Y = lateral derecho)
-  const localX = dx * cos + dy * sin;
-  const localY = -dx * sin + dy * cos;
+  const dy =
+    ball.y - car.y;
+
+  // Transformar al espacio local del auto
+  const localX =
+    dx * cos +
+    dy * sin;
+
+  const localY =
+    -dx * sin +
+    dy * cos;
 
   // Punto más cercano dentro del rectángulo del auto
-  const clampedX = Math.max(-halfW, Math.min(halfW, localX));
-  const clampedY = Math.max(-halfH, Math.min(halfH, localY));
+  const clampedX =
+    Math.max(
+      -halfW,
+      Math.min(
+        halfW,
+        localX
+      )
+    );
 
-  const diffX = localX - clampedX;
-  const diffY = localY - clampedY;
-  const dist = Math.hypot(diffX, diffY);
+  const clampedY =
+    Math.max(
+      -halfH,
+      Math.min(
+        halfH,
+        localY
+      )
+    );
 
-  if (dist >= br) return false; // Sin contacto físico real
+  const diffX =
+    localX -
+    clampedX;
 
-  // Normal en el espacio local
+  const diffY =
+    localY -
+    clampedY;
+
+  const dist =
+    Math.hypot(
+      diffX,
+      diffY
+    );
+
+  if (
+    dist >= br
+  ) {
+    return false;
+  }
+
+  // Normal local
   let normLocalX = 0;
   let normLocalY = 0;
-  if (dist > 0.0001) {
-    normLocalX = diffX / dist;
-    normLocalY = diffY / dist;
+
+  if (
+    dist > 0.0001
+  ) {
+    normLocalX =
+      diffX / dist;
+
+    normLocalY =
+      diffY / dist;
   } else {
-    normLocalX = localX >= 0 ? 1 : -1;
+    normLocalX =
+      localX >= 0
+        ? 1
+        : -1;
+
     normLocalY = 0;
   }
 
-  // Normal en coordenadas globales
-  const worldNormX = normLocalX * cos - normLocalY * sin;
-  const worldNormY = normLocalX * sin + normLocalY * cos;
+  // Normal global
+  const worldNormX =
+    normLocalX * cos -
+    normLocalY * sin;
+
+  const worldNormY =
+    normLocalX * sin +
+    normLocalY * cos;
 
   // Separar pelota del auto
-  const overlap = br - (dist > 0.0001 ? dist : 0);
-  ball.x += worldNormX * overlap;
-  ball.y += worldNormY * overlap;
+  const overlap =
+    br -
+    (dist > 0.0001
+      ? dist
+      : 0);
 
-  // Determinar si el impacto es frontal (frente del auto transmitiendo empuje)
-  const isFrontHit = (clampedX >= halfW - 4 && normLocalX > 0.25) || localX > halfW * 0.75;
-  const carSpeed = Math.hypot(car.vx, car.vy);
+  ball.x +=
+    worldNormX *
+    overlap;
 
-  const rvx = ball.vx - car.vx;
-  const rvy = ball.vy - car.vy;
-  const relDot = rvx * worldNormX + rvy * worldNormY;
+  ball.y +=
+    worldNormY *
+    overlap;
+
+  // Determinar si el impacto es frontal
+  const isFrontHit =
+    (
+      clampedX >=
+        halfW - 4 &&
+      normLocalX > 0.25
+    ) ||
+    localX >
+      halfW * 0.75;
+
+  const carSpeed =
+    Math.hypot(
+      car.vx,
+      car.vy
+    );
+
+  const rvx =
+    ball.vx - car.vx;
+
+  const rvy =
+    ball.vy - car.vy;
+
+  const relDot =
+    rvx * worldNormX +
+    rvy * worldNormY;
 
   if (isFrontHit) {
     if (car.isFlipping) {
-      // 🚀 FRONT FLIP (KICK): impulso explosivo — siempre aplica independiente del cooldown
-      const flipPower = Math.min(CAR_BALL_CONFIG.maxSpeed, Math.max(500, carSpeed * 1.5 + 460));
-      ball.vx = worldNormX * flipPower + car.vx * 0.2;
-      ball.vy = worldNormY * flipPower + car.vy * 0.2;
-      car.touchCooldown = CAR_CONFIG.touchCooldownMs; // reset cooldown tras el flip
-    } else if ((car.touchCooldown || 0) <= 0) {
-      // ⚽ Toquecito: solo aplica cuando el cooldown llegó a 0
-      // La fuerza depende de la velocidad del auto — más rápido = golpe más fuerte
-      const push = Math.max(25, carSpeed * 0.9);
-      ball.vx = worldNormX * push + car.vx * 0.25;
-      ball.vy = worldNormY * push + car.vy * 0.25;
-      // Iniciar cooldown antes del siguiente toque
-      car.touchCooldown = CAR_CONFIG.touchCooldownMs;
+      const flipPower =
+        Math.min(
+          CAR_BALL_CONFIG.maxSpeed,
+          Math.max(
+            500,
+            carSpeed * 1.5 +
+              460
+          )
+        );
+
+      ball.vx =
+        worldNormX *
+          flipPower +
+        car.vx * 0.2;
+
+      ball.vy =
+        worldNormY *
+          flipPower +
+        car.vy * 0.2;
+
+      car.touchCooldown =
+        CAR_CONFIG.touchCooldownMs;
+    } else if (
+      (car.touchCooldown || 0) <= 0
+    ) {
+      const push =
+        Math.max(
+          25,
+          carSpeed * 0.9
+        );
+
+      ball.vx =
+        worldNormX *
+          push +
+        car.vx * 0.25;
+
+      ball.vy =
+        worldNormY *
+          push +
+        car.vy * 0.25;
+
+      car.touchCooldown =
+        CAR_CONFIG.touchCooldownMs;
     }
-    // Si el cooldown no llegó a 0: el auto mantiene contacto pero NO empuja la pelota
-    // (la separación posicional de arriba ya evita que se solapen)
   } else {
-    // Choque lateral o trasero: empuje suave sin cooldown
-    if (relDot < 0) {
-      const sideImpulse = -(1 + CAR_BALL_CONFIG.playerRestitution) * relDot;
-      ball.vx += worldNormX * sideImpulse * 0.5 + car.vx * 0.1;
-      ball.vy += worldNormY * sideImpulse * 0.5 + car.vy * 0.1;
+    // Choque lateral o trasero
+    if (
+      relDot < 0
+    ) {
+      const sideImpulse =
+        -(1 +
+          CAR_BALL_CONFIG.playerRestitution) *
+        relDot;
+
+      ball.vx +=
+        worldNormX *
+          sideImpulse *
+          0.5 +
+        car.vx *
+          0.1;
+
+      ball.vy +=
+        worldNormY *
+          sideImpulse *
+          0.5 +
+        car.vy *
+          0.1;
     }
   }
 
-  // Limitar velocidad de la pelota
-  const ballSpeed = Math.hypot(ball.vx, ball.vy);
-  if (ballSpeed > CAR_BALL_CONFIG.maxSpeed) {
-    ball.vx = (ball.vx / ballSpeed) * CAR_BALL_CONFIG.maxSpeed;
-    ball.vy = (ball.vy / ballSpeed) * CAR_BALL_CONFIG.maxSpeed;
+  // Limitar velocidad pelota
+  const ballSpeed =
+    Math.hypot(
+      ball.vx,
+      ball.vy
+    );
+
+  if (
+    ballSpeed >
+    CAR_BALL_CONFIG.maxSpeed
+  ) {
+    ball.vx =
+      (ball.vx / ballSpeed) *
+      CAR_BALL_CONFIG.maxSpeed;
+
+    ball.vy =
+      (ball.vy / ballSpeed) *
+      CAR_BALL_CONFIG.maxSpeed;
   }
+
   return true;
 }
-
