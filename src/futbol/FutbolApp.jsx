@@ -51,6 +51,26 @@ function makeLocalRoom(playerName) {
   };
 }
 
+function makeTrainingRoom(playerName) {
+  const clean = cleanName(playerName) || 'Jugador';
+  return {
+    gameType: 'futbol',
+    phase: 'lobby',
+    hostId: 'p1',
+    isLocalGame: true,
+    isTrainingMode: true,
+    options: { ...DEFAULT_OPTIONS },
+    players: [
+      { id: 'p1', name: clean, team: 'white' },
+    ],
+    score: { red: 0, blue: 0 },
+    winner: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    matchNumber: 1,
+  };
+}
+
 export default function FutbolApp({ onBackToMenu }) {
   const [name, setName] = useState(loadName);
   const [joinCode, setJoinCode] = useState(codeFromUrl);
@@ -106,6 +126,15 @@ export default function FutbolApp({ onBackToMenu }) {
       setError('No se pudo actualizar la partida.');
       return null;
     }
+  }
+
+  // ─── Crear modo entrenamiento ───────────────────────────────────────────
+  function handleCreateTraining() {
+    const trainingRoom = makeTrainingRoom(name);
+    const sess = { playerId: 'p1', isLocalGame: true, isTrainingMode: true, name: trainingRoom.players[0].name };
+    setError('');
+    setRoom(trainingRoom);
+    setSession(sess);
   }
 
   // ─── Crear partida local ────────────────────────────────────────────────
@@ -235,6 +264,27 @@ export default function FutbolApp({ onBackToMenu }) {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Modo Entrenamiento */}
+              <div style={{ background: COLORS.panelSoft, border: `1px solid ${COLORS.panelBorder}`, borderRadius: 6, padding: 14 }}>
+                <div style={{ fontWeight: 700, color: COLORS.cream, fontSize: 15, marginBottom: 6 }}>
+                  🎯 Modo Entrenamiento (Solo)
+                </div>
+                <p style={{ margin: '0 0 10px', fontSize: 13, color: COLORS.muted }}>
+                  Practicá solo en la cancha con todas las opciones y modificadores del modo online. Tu auto es blanco.
+                </p>
+                <div style={{ background: '#181818', borderRadius: 4, padding: '8px 10px', marginBottom: 12, fontSize: 11, color: '#aaa', fontFamily: 'monospace', lineHeight: 1.6 }}>
+                  <div>⚪ <b>Jugador Solo:</b> WASD + Espacio + Shift Izq (+ Ctrl Izq para derrapar en coches)</div>
+                </div>
+                <button
+                  type="button"
+                  className="cs-btn"
+                  onClick={handleCreateTraining}
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: 4, background: '#ffffff', color: '#111111', fontWeight: 700, fontSize: 14 }}
+                >
+                  Entrar a Modo Entrenamiento
+                </button>
+              </div>
+
               {/* Juego Local */}
               <div style={{ background: COLORS.panelSoft, border: `1px solid ${COLORS.panelBorder}`, borderRadius: 6, padding: 14 }}>
                 <div style={{ fontWeight: 700, color: COLORS.cream, fontSize: 15, marginBottom: 6 }}>

@@ -51,6 +51,7 @@ export function teamCount(room, team) {
 }
 
 export function canStart(room) {
+  if (room?.isTrainingMode) return (room?.players?.length || 0) >= 1;
   return teamCount(room, 'red') >= 1 && teamCount(room, 'blue') >= 1;
 }
 

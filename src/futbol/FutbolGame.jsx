@@ -15,8 +15,9 @@ import { createMesh } from './p2p.js';
 const TEAM_COLOR = {
   red: '#e05050',
   blue: '#4a90d9',
+  white: '#ffffff',
 };
-const TEAM_NAME = { red: 'ROJO', blue: 'AZUL' };
+const TEAM_NAME = { red: 'ROJO', blue: 'AZUL', white: 'ENTRENAMIENTO' };
 const LINK_LABEL = { directo: '● conexión directa', mixto: '● conexión mixta', firebase: '● conexión lenta' };
 const LINK_HINT = {
   directo: 'Las jugadas van directo de pantalla a pantalla.',
@@ -176,11 +177,11 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       let endNotified = false;
       const mountedAt = performance.now();
       const localPlayers = roomRef.current.players;
-      const p1Player = localPlayers.find((p) => p.team === 'red') || localPlayers[0];
-      const p2Player = localPlayers.find((p) => p.team === 'blue') || localPlayers[1];
+      const p1Player = localPlayers.find((p) => p.team === 'red' || p.team === 'white') || localPlayers[0];
+      const p2Player = localPlayers.find((p) => p.team === 'blue');
       const p1Id = p1Player?.id || 'p1';
       const p2Id = p2Player?.id || 'p2';
-      const localSet = new Set([p1Id, p2Id]);
+      const localSet = new Set(p2Player ? [p1Id, p2Id] : [p1Id]);
 
       const localMatch = initialMatch(matchNumber, Date.now(), initialTimeMs);
 
@@ -235,8 +236,10 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         if (view.phase === 'playing') {
           const inputs = {
             [p1Id]: p1InputRef.current,
-            [p2Id]: p2InputRef.current,
           };
+          if (p2Player && p2Id !== p1Id) {
+            inputs[p2Id] = p2InputRef.current;
+          }
           for (let i = 0; i < steps; i++) {
             if (i === steps - 1) prev = captureBodies(state, localSet, true);
             const result = stepPhysics(state, inputs, PHYSICS_STEP_MS, { local: localSet });
@@ -687,8 +690,11 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
     }
 
     function updateCamera(state, dt) {
-      // En partida local enfocar la pelota; en online, a me, primer jugador o la pelota
-      const target = isLocalGame
+      // En modo entrenamiento enfocar al jugador; en partida local 1v1 enfocar la pelota; en online a me / primer jugador
+      const isTraining = Boolean(roomRef.current?.isTrainingMode);
+      const target = isTraining
+        ? (Object.values(state.players)[0] || state.ball)
+        : isLocalGame
         ? state.ball
         : ((meId && state.players[meId]) || Object.values(state.players)[0] || state.ball);
       if (!target) return;
@@ -830,16 +836,18 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         borderBottom: '2px solid #2e2e2e',
         fontFamily: 'monospace',
       }}>
-        {/* Lado Rojo */}
+        {/* Lado Rojo / Entrenamiento */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 14, height: 14, borderRadius: '50%', background: TEAM_COLOR.red, boxShadow: `0 0 8px ${TEAM_COLOR.red}` }} />
-          <span style={{ color: TEAM_COLOR.red, fontWeight: 700, fontSize: 20 }}>ROJO</span>
+          <div style={{ width: 14, height: 14, borderRadius: '50%', background: room?.isTrainingMode ? TEAM_COLOR.white : TEAM_COLOR.red, boxShadow: `0 0 8px ${room?.isTrainingMode ? TEAM_COLOR.white : TEAM_COLOR.red}` }} />
+          <span style={{ color: room?.isTrainingMode ? TEAM_COLOR.white : TEAM_COLOR.red, fontWeight: 700, fontSize: 20 }}>
+            {room?.isTrainingMode ? 'ENTRENAMIENTO' : 'ROJO'}
+          </span>
         </div>
 
         {/* Marcador central y Reloj */}
         <div style={{ textAlign: 'center' }}>
           <div style={{ color: '#fff', fontWeight: 900, fontSize: 32, letterSpacing: 4, lineHeight: 1 }}>
-            {hud.red} - {hud.blue}
+            {room?.isTrainingMode ? `${hud.red + hud.blue} Goles` : `${hud.red} - ${hud.blue}`}
           </div>
           <div style={{ color: '#d4af37', fontSize: 16, fontWeight: 700, marginTop: 4 }}>
             {hud.time}
@@ -855,12 +863,16 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           )}
         </div>
 
-        {/* Lado Azul y Botones */}
+        {/* Lado Azul / Modo Solo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 6 }}>
-            <span style={{ color: TEAM_COLOR.blue, fontWeight: 700, fontSize: 20 }}>AZUL</span>
-            <div style={{ width: 14, height: 14, borderRadius: '50%', background: TEAM_COLOR.blue, boxShadow: `0 0 8px ${TEAM_COLOR.blue}` }} />
-          </div>
+          {room?.isTrainingMode ? (
+            <span style={{ color: '#aaa', fontWeight: 700, fontSize: 14, marginRight: 6 }}>🎯 MODO SOLO</span>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 6 }}>
+              <span style={{ color: TEAM_COLOR.blue, fontWeight: 700, fontSize: 20 }}>AZUL</span>
+              <div style={{ width: 14, height: 14, borderRadius: '50%', background: TEAM_COLOR.blue, boxShadow: `0 0 8px ${TEAM_COLOR.blue}` }} />
+            </div>
+          )}
           {isCarMode && (
             <button
               type="button"

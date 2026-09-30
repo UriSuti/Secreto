@@ -20,64 +20,106 @@ export default function FutbolLobby({ room, code, me, onDispatch, onLeave, onCop
   const blues = room.players.filter((p) => p.team === 'blue');
   const ready = canStart(room);
 
-  const subtitle = room?.isLocalGame
+  const subtitle = room?.isTrainingMode
+    ? 'Modo Entrenamiento: Practicá solo con todos los modificadores y opciones disponibles. Tu auto/jugador es blanco.'
+    : room?.isLocalGame
     ? 'Partida local 1v1 en una misma pantalla (J1: WASD + Espacio | J2: Flechitas + Enter). Configurá los modificadores y comenzá cuando quieras.'
     : `Compartí el código o el link para que se unan tus amigos.${host ? ' Sos el anfitrión: los modificadores son tuyos.' : ''}`;
+
+  const gameTitle = room?.isTrainingMode ? 'modo entrenamiento' : (room?.isLocalGame ? 'partida local' : 'sala de espera');
 
   return (
     <LobbyLayout
       code={code || room?.code}
-      gameTitle={room?.isLocalGame ? "partida local" : "sala de espera"}
+      gameTitle={gameTitle}
       subtitle={subtitle}
       copied={copied}
       onCopyInvite={onCopyInvite}
       onLeave={onLeave}
       leaveText="Salir"
     >
-      {/* Equipos */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 24 }}>
-        {/* Equipo Rojo */}
-        <LobbyTeamCard
-          team="red"
-          title="Equipo Rojo"
-          icon="🔴"
-          color={COLORS.redLight}
-          countBadge={`(${reds.length}/${MAX_PER_TEAM})`}
-        >
-          <TeamRoster
-            players={reds}
-            myPlayerId={me?.id}
-            hostId={room.hostId}
-            isMyTeam={myTeam === 'red'}
-            isFull={reds.length >= MAX_PER_TEAM}
-            canJoin={Boolean(me)}
-            onJoin={() => onDispatch({ type: 'pickTeam', team: 'red' })}
-            buttonColors={TEAM_BUTTON.red}
-            joinLabel="Unirme al Equipo Rojo"
-          />
-        </LobbyTeamCard>
+      {/* Equipos / Modo Entrenamiento */}
+      {room?.isTrainingMode ? (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{
+            background: COLORS.panelSoft,
+            border: `1px solid ${COLORS.panelBorder}`,
+            borderRadius: 8,
+            padding: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+          }}>
+            <div style={{
+              width: 44,
+              height: 44,
+              borderRadius: '50%',
+              background: '#ffffff',
+              boxShadow: '0 0 12px rgba(255, 255, 255, 0.6)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 22,
+              color: '#000',
+              fontWeight: 900,
+            }}>
+              ⚪
+            </div>
+            <div>
+              <div style={{ color: COLORS.cream, fontWeight: 700, fontSize: 16 }}>
+                {me?.name || 'Jugador'} (Auto Blanco)
+              </div>
+              <div style={{ color: COLORS.muted, fontSize: 13, marginTop: 2 }}>
+                Modo Solo / Entrenamiento · Controles: WASD + Espacio + Shift Izquierdo
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 24 }}>
+          {/* Equipo Rojo */}
+          <LobbyTeamCard
+            team="red"
+            title="Equipo Rojo"
+            icon="🔴"
+            color={COLORS.redLight}
+            countBadge={`(${reds.length}/${MAX_PER_TEAM})`}
+          >
+            <TeamRoster
+              players={reds}
+              myPlayerId={me?.id}
+              hostId={room.hostId}
+              isMyTeam={myTeam === 'red'}
+              isFull={reds.length >= MAX_PER_TEAM}
+              canJoin={Boolean(me)}
+              onJoin={() => onDispatch({ type: 'pickTeam', team: 'red' })}
+              buttonColors={TEAM_BUTTON.red}
+              joinLabel="Unirme al Equipo Rojo"
+            />
+          </LobbyTeamCard>
 
-        {/* Equipo Azul */}
-        <LobbyTeamCard
-          team="blue"
-          title="Equipo Azul"
-          icon="🔵"
-          color={COLORS.blueLight}
-          countBadge={`(${blues.length}/${MAX_PER_TEAM})`}
-        >
-          <TeamRoster
-            players={blues}
-            myPlayerId={me?.id}
-            hostId={room.hostId}
-            isMyTeam={myTeam === 'blue'}
-            isFull={blues.length >= MAX_PER_TEAM}
-            canJoin={Boolean(me)}
-            onJoin={() => onDispatch({ type: 'pickTeam', team: 'blue' })}
-            buttonColors={TEAM_BUTTON.blue}
-            joinLabel="Unirme al Equipo Azul"
-          />
-        </LobbyTeamCard>
-      </div>
+          {/* Equipo Azul */}
+          <LobbyTeamCard
+            team="blue"
+            title="Equipo Azul"
+            icon="🔵"
+            color={COLORS.blueLight}
+            countBadge={`(${blues.length}/${MAX_PER_TEAM})`}
+          >
+            <TeamRoster
+              players={blues}
+              myPlayerId={me?.id}
+              hostId={room.hostId}
+              isMyTeam={myTeam === 'blue'}
+              isFull={blues.length >= MAX_PER_TEAM}
+              canJoin={Boolean(me)}
+              onJoin={() => onDispatch({ type: 'pickTeam', team: 'blue' })}
+              buttonColors={TEAM_BUTTON.blue}
+              joinLabel="Unirme al Equipo Azul"
+            />
+          </LobbyTeamCard>
+        </div>
+      )}
 
       {/* Opciones del Partido */}
       <LobbyOptions title="modificadores de la partida" canEdit={host}>
@@ -248,7 +290,9 @@ export default function FutbolLobby({ room, code, me, onDispatch, onLeave, onCop
       {/* Acciones */}
       <LobbyActionSection
         buttonText={
-          host
+          room?.isTrainingMode
+            ? '⚽ ¡Iniciar Entrenamiento!'
+            : host
             ? ready
               ? '⚽ ¡Iniciar Partido!'
               : 'Faltan jugadores en los equipos'
@@ -256,14 +300,16 @@ export default function FutbolLobby({ room, code, me, onDispatch, onLeave, onCop
         }
         disabled={!host || !ready}
         onClick={() => onDispatch({ type: 'startGame' })}
-        counterText={`🔴 ${reds.length} vs 🔵 ${blues.length}`}
+        counterText={room?.isTrainingMode ? '⚪ 1 Jugador (Entrenamiento)' : `🔴 ${reds.length} vs 🔵 ${blues.length}`}
         counterColor={ready ? COLORS.greenLight : COLORS.cream}
         statusHint={
-          ready
+          room?.isTrainingMode
+            ? '¡Todo listo! Configurá las opciones a tu gusto y comenzá el entrenamiento.'
+            : ready
             ? (host ? '¡Equipos listos! El anfitrión puede dar el pitazo inicial.' : '¡Equipos listos! Esperando al anfitrión.')
             : 'Se necesita al menos 1 jugador en el Equipo Rojo y 1 en el Equipo Azul.'
         }
-        problems={!ready && room.players.length >= 1 ? ['Se necesita al menos 1 jugador en cada equipo para iniciar.'] : []}
+        problems={!ready && !room?.isTrainingMode && room.players.length >= 1 ? ['Se necesita al menos 1 jugador en cada equipo para iniciar.'] : []}
       />
     </LobbyLayout>
   );

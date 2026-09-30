@@ -100,7 +100,7 @@ export function createGameState(players, options = {}) {
   const mapType = options.mapType || 'cancha3';
   const field = MAP_CONFIGS[mapType] || MAP_CONFIGS.cancha3;
 
-  const reds = players.filter((p) => p.team === 'red');
+  const reds = players.filter((p) => p.team === 'red' || p.team === 'white');
   const blues = players.filter((p) => p.team === 'blue');
 
   const cx = field.width / 2;
@@ -169,7 +169,7 @@ export function resetPositions(state, players) {
   }
 
   const field = state.field || MAP_CONFIGS.cancha3;
-  const reds = players.filter((p) => p.team === 'red');
+  const reds = players.filter((p) => p.team === 'red' || p.team === 'white');
   const blues = players.filter((p) => p.team === 'blue');
 
   const cx = field.width / 2;
@@ -1047,7 +1047,7 @@ export function makeCarState(
   infiniteBoost = false
 ) {
   const defaultAngle =
-    p.team === 'red'
+    (p.team === 'red' || p.team === 'white')
       ? -Math.PI / 2
       : Math.PI / 2;
 
@@ -1349,7 +1349,7 @@ export function createCarGameState(
 
   const reds =
     players.filter(
-      (p) => p.team === 'red'
+      (p) => p.team === 'red' || p.team === 'white'
     );
 
   const blues =
@@ -1435,7 +1435,7 @@ export function resetCarPositions(
 
   const reds =
     players.filter(
-      (p) => p.team === 'red'
+      (p) => p.team === 'red' || p.team === 'white'
     );
 
   const blues =
