@@ -297,6 +297,13 @@ jugador en la versión anterior, donde el host corregía a todos hacia su propia
   retraso se calcula relativo; no intentes corregirlo.
 - **Con 4 escrituras en vuelo** (el primer intento) la latencia normal frenaba el envío a ~10 fotos
   por segundo y las fotos esperaban en cola antes de salir.
+- **Al abrirse el canal directo hay que olvidar las demoras medidas por Firebase** (`switchToDirect`).
+  Si no, con el jugador quieto (una foto cada 500 ms) las demoras viejas de 300–400 ms seguían en la
+  ventana y se lo dibujaba con 440 ms de atraso varios segundos, aunque el canal ya diera 15 ms.
+- **Derrape (modo coches, Control)**: `inp.drift` baja el agarre lateral a `driftLateralFriction` y
+  multiplica el giro por `driftTurnBoost`; el avance responde igual. `isDrifting` viaja en la foto
+  (`dr`) y las marcas de goma son solo dibujo (`drawSkidMarks`, no están en el estado). **Ctrl+W
+  cierra la pestaña y ninguna página lo puede frenar**: por eso en coches hay un `beforeunload`.
 - **Para probar con dos jugadores en un navegador automatizado, usá dos navegadores separados**, no
   dos pestañas del mismo: la pestaña de fondo recibe menos cuadros y las demoras medidas salen
   infladas (daba ~300 ms donde en realidad había 50). Para probar el respaldo por Firebase, borrá

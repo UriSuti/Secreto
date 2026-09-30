@@ -121,10 +121,18 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST 0.10.0 = Fútbol online: conexión directa entre jugadores y la misma pelota en todas las pantallas
+0.10.0 = Fútbol online: conexión directa entre jugadores y la misma pelota en todas las pantallas
 - Las jugadas ahora viajan directo de una pantalla a otra (WebRTC), sin pasar por el servidor. Antes cada foto pasaba por Firebase y tardaba de 200 a 1.200 ms en llegar, en ráfagas; ahora tarda lo que tarda la red entre los dos (unos 15 ms en la prueba) y se manda una por cuadro en vez de 20 por segundo.
 - A los demás jugadores se los dibuja con unos 50 ms de atraso (antes, entre 300 ms y un segundo).
 - Firebase sigue presentando a los jugadores y guardando el marcador. Si con alguien no se puede conectar directo (hay redes que lo bloquean), sus jugadas siguen yendo por Firebase como antes, sin cortar el partido.
 - Debajo del reloj se ve cómo está la conexión: «conexión directa», «mixta» (directa con algunos) o «lenta» (todo por el servidor).
 - Los goles también llegan por la conexión directa: el festejo aparece a la vez en todas las pantallas.
 - Arreglado: la pelota se comportaba distinto según la pantalla. La física avanzaba en pasos del largo de cada cuadro, así que una pantalla de 144 Hz y otra de 60 Hz resolvían distinto los choques y las patadas. Ahora todas simulan en pasos fijos de 1/120 de segundo y dan exactamente lo mismo (también en el 1v1 local).
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST 0.10.1 = Fútbol coches: derrape con Control
+- Manteniendo Control (Ctrl Izq para el Jugador 1 y Ctrl Der para el Jugador 2 en el 1v1 local) el auto pierde agarre de costado y gira más rápido: se le abre la cola y sigue patinando para donde venía. Al soltar, recupera el agarre.
+- Mientras derrapa deja marcas de goma en la cancha, que se borran solas. Los demás jugadores también ven el derrape.
+- Como Ctrl+W cierra la pestaña (y el navegador no deja evitarlo), durante un partido de coches el navegador pregunta antes de cerrarla. Control ya no dispara otros atajos del navegador (Ctrl+D, Ctrl+S…).
+- Arreglado: al empezar el partido, a veces se veía a los demás con casi medio segundo de atraso durante varios segundos, hasta que se movían un rato. Quedaban medidas las demoras de Firebase de antes de abrirse la conexión directa.

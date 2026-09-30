@@ -434,3 +434,47 @@ test('Fútbol Física: Modo Coches - KICK / FLIP (Rocket League front flip) y pe
 });
 
 
+
+// ─── Derrape (Control) ──────────────────────────────────────────────────────
+
+function carRun(state, input, ms) {
+  for (let t = 0; t < ms; t += 1000 / 120) state = stepPhysics(state, { p1: input }, 1000 / 120).nextState;
+  return state;
+}
+
+// Ángulo entre hacia dónde apunta el auto y hacia dónde se mueve.
+function slipAngle(car) {
+  let d = Math.atan2(car.vy, car.vx) - car.angle;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return Math.abs(d);
+}
+
+test('coches: con Control derrapa: gira más y patina de costado', () => {
+  const start = carRun(createGameState([{ id: 'p1', name: 'Rojo', team: 'red' }], { vehicleMode: 'coches' }), { accelerate: true }, 900);
+  const grip = carRun(start, { accelerate: true, turnLeft: true }, 350).players.p1;
+  const drift = carRun(start, { accelerate: true, turnLeft: true, drift: true }, 350).players.p1;
+  const turned = (car) => Math.abs(car.angle - start.players.p1.angle);
+  assert.ok(drift.isDrifting, 'queda marcado para dibujar las marcas de goma');
+  assert.ok(!grip.isDrifting);
+  assert.ok(turned(drift) > turned(grip) * 1.3, `gira más (${turned(drift).toFixed(2)} contra ${turned(grip).toFixed(2)})`);
+  assert.ok(slipAngle(drift) > slipAngle(grip) + 0.2, `la cola se abre (${slipAngle(drift).toFixed(2)} contra ${slipAngle(grip).toFixed(2)})`);
+});
+
+test('coches: al soltar Control recupera el agarre', () => {
+  const start = carRun(createGameState([{ id: 'p1', name: 'Rojo', team: 'red' }], { vehicleMode: 'coches' }), { accelerate: true }, 900);
+  const drifted = carRun(start, { accelerate: true, turnLeft: true, drift: true }, 350);
+  const after = carRun(drifted, { accelerate: true }, 400).players.p1;
+  assert.ok(!after.isDrifting);
+  assert.ok(slipAngle(after) < 0.05, `vuelve a ir hacia donde apunta (${slipAngle(after).toFixed(3)})`);
+});
+
+test('coches: de costado y derrapando, sigue patinando en vez de frenar en seco', () => {
+  let state = carRun(createGameState([{ id: 'p1', name: 'Rojo', team: 'red' }], { vehicleMode: 'coches' }), { accelerate: true }, 900);
+  state.players.p1.angle += Math.PI / 2; // la trompa a 90° de hacia dónde va
+  const before = Math.hypot(state.players.p1.vx, state.players.p1.vy);
+  const sliding = carRun(state, { drift: true }, 100).players.p1;
+  const stopped = carRun(state, {}, 100).players.p1;
+  assert.ok(Math.hypot(sliding.vx, sliding.vy) > before * 0.6, 'derrapando conserva el envión');
+  assert.ok(Math.hypot(stopped.vx, stopped.vy) < Math.hypot(sliding.vx, sliding.vy) / 2, 'sin derrape el agarre lo frena mucho más');
+});

@@ -1022,6 +1022,11 @@ export const CAR_CONFIG = {
   brakeForce: 520,    // desaceleración al frenar (px/s²)
   friction: 0.80,     // factor de velocidad conservado por 1/60s — frena rápido al soltar
   lateralFriction: 0.62, // cuánto de la velocidad lateral se conserva (derrape)
+  // Derrape con Control (freno de mano): casi sin agarre lateral y girando más rápido, el auto
+  // sigue patinando hacia donde venía mientras la trompa apunta a otro lado.
+  driftLateralFriction: 0.96, // velocidad lateral que se conserva por 1/60 s al derrapar
+  driftTurnBoost: 1.7,        // cuánto más rápido gira el chasis al derrapar
+  driftMinSpeed: 40,          // más lento que esto no derrapa (px/s)
   turnSpeedBase: 2.8, // velocidad angular base (rad/s)
   turnSpeedLow: 3.6,  // velocidad angular a velocidad baja (rad/s)
   turnMinSpeed: 20,   // a menos de esta velocidad el auto gira más fácil
@@ -1584,6 +1589,12 @@ export function stepCarPhysics(
       const inp =
         inputs[car.id] || {};
 
+      // Derrape: se mira la velocidad total y no la de avance, porque de costado la de avance es casi 0.
+      const drifting =
+        Boolean(inp.drift) &&
+        Math.hypot(car.vx || 0, car.vy || 0) > C.driftMinSpeed;
+      car.isDrifting = drifting;
+
       // Giro de ruedas
       const maxSteer =
         C.maxSteerAngle || 0.65;
@@ -1629,8 +1640,9 @@ export function stepCarPhysics(
       }
 
       // Rotación del chasis
-      const absSpeed =
-        Math.abs(car.speed);
+      const absSpeed = drifting
+        ? Math.hypot(car.vx, car.vy)
+        : Math.abs(car.speed);
 
       if (
         absSpeed > 4 &&
@@ -1665,7 +1677,8 @@ export function stepCarPhysics(
         car.angle +=
           turnRate *
           s *
-          reverseSign;
+          reverseSign *
+          (drifting ? C.driftTurnBoost : 1);
       }
 
       // Boost
@@ -1821,8 +1834,11 @@ export function stepCarPhysics(
 
           if (car.speed <= 0) {
             car.speed = 0;
-            car.vx = 0;
-            car.vy = 0;
+            // Derrapando, el patinazo de costado sigue aunque ya no avance.
+            if (!drifting) {
+              car.vx = 0;
+              car.vy = 0;
+            }
           }
         } else {
           car.speed =
@@ -1847,8 +1863,10 @@ export function stepCarPhysics(
           Math.abs(car.speed) < 2
         ) {
           car.speed = 0;
-          car.vx = 0;
-          car.vy = 0;
+          if (!drifting) {
+            car.vx = 0;
+            car.vy = 0;
+          }
         }
       }
 
@@ -1871,15 +1889,29 @@ export function stepCarPhysics(
           s * 60
         );
 
-      car.vx =
-        car.vx * latFric +
-        targetVx *
-          (1 - latFric);
+      if (drifting) {
+        // El avance responde igual que siempre; lo que cambia es que lo lateral casi no se frena.
+        const rightX = -fwdY;
+        const rightY = fwdX;
+        const along =
+          (car.vx * fwdX + car.vy * fwdY) * latFric +
+          car.speed * (1 - latFric);
+        const side =
+          (car.vx * rightX + car.vy * rightY) *
+          Math.pow(C.driftLateralFriction, s * 60);
+        car.vx = fwdX * along + rightX * side;
+        car.vy = fwdY * along + rightY * side;
+      } else {
+        car.vx =
+          car.vx * latFric +
+          targetVx *
+            (1 - latFric);
 
-      car.vy =
-        car.vy * latFric +
-        targetVy *
-          (1 - latFric);
+        car.vy =
+          car.vy * latFric +
+          targetVy *
+            (1 - latFric);
+      }
 
       car.speed =
         car.vx * fwdX +

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EXTRAP_MAX_MS, GOAL_PAUSE_MS, KICKOFF_COUNTDOWN_MS, MIN_DELAY_MS, PHYSICS_STEP_MS, SEND_INTERVAL_MS, fixedSteps,
-  applyPlayerSnapshot, claimBeats, createRemote, goalMatch, initialMatch, latestWriter, matchPhase,
+  applyPlayerSnapshot, claimBeats, createRemote, goalMatch, initialMatch, latestWriter, matchPhase, switchToDirect,
   packBall, packInput, packPlayer, receiveSnapshot, sameMotion, sampleRemote, targetDelay, unpackInput, updateDelay,
 } from '../src/futbol/net.js';
 import { advanceBall, createGameState, stepPhysics } from '../src/futbol/physics.js';
@@ -325,4 +325,27 @@ test('física: si la pestaña se trabó, no intenta recuperar todo de golpe', ()
   const { steps, alpha } = fixedSteps(clock, 5000);
   assert.ok(steps <= 8);
   assert.ok(alpha >= 0 && alpha < 1);
+});
+
+test('red: el derrape viaja en la foto del auto y en las teclas', () => {
+  const s = packPlayer({ x: 0, y: 0, vx: 100, vy: 0, angle: 0, isDrifting: true }, true, 1, 0, 5, { drift: true, accelerate: true });
+  assert.equal(s.dr, 1);
+  assert.deepEqual(unpackInput(s.in), { accelerate: true, drift: true });
+  const back = {};
+  applyPlayerSnapshot(back, s, true);
+  assert.equal(back.isDrifting, true);
+  applyPlayerSnapshot(back, packPlayer({ x: 0, y: 0, vx: 0, vy: 0, angle: 0 }, true, 1, 0, 6, {}), true);
+  assert.equal(back.isDrifting, false);
+});
+
+test('red: al abrirse la conexión directa se olvidan las demoras de Firebase', () => {
+  const remote = createRemote();
+  // Quieto y por Firebase: pocas fotos, con 400 ms de demora.
+  for (let i = 0; i < 8; i++) receiveSnapshot(remote, snap(i * 500, 0, { vx: 0 }), i * 500 + 400);
+  updateDelay(remote, 16);
+  assert.ok(remote.delay > 400);
+  assert.equal(switchToDirect(remote), true);
+  assert.equal(switchToDirect(remote), false, 'solo la primera vez');
+  for (let i = 0; i < 5; i++) receiveSnapshot(remote, snap(4000 + i * 15, i), 4000 + i * 15 + 20);
+  assert.ok(updateDelay(remote, 16) < 80, `se dibuja casi al día (${remote.delay})`);
 });

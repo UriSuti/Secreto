@@ -8,7 +8,7 @@ import {
   BALL_SMOOTH_MS, CLAIM_COOLDOWN_MS, FIREBASE_BACKUP_MS, FIRST_COUNTDOWN_MS, HEARTBEAT_MS, P2P_SEND_INTERVAL_MS,
   PHYSICS_STEP_MS, REMOTE_SMOOTH_MS, SEND_INTERVAL_MS,
   applyPlayerSnapshot, claimBeats, createRemote, fixedSteps, goalMatch, initialMatch, latestWriter, matchPhase,
-  packBall, packPlayer, receiveSnapshot, sameMotion, sampleRemote, unpackInput, updateDelay,
+  packBall, packPlayer, receiveSnapshot, sameMotion, sampleRemote, switchToDirect, unpackInput, updateDelay,
 } from './net.js';
 import { createMesh } from './p2p.js';
 
@@ -59,6 +59,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
   const zoomKeysRef = useRef({ zoomIn: false, zoomOut: false });
   const [rotateCamera, setRotateCamera] = useState(isCarMode);
   const rotateCameraRef = useRef(isCarMode);
+  const skidRef = useRef(new Map()); // id → marcas de goma que deja al derrapar
 
   // HUD: se actualiza solo cuando cambia lo que se ve, no en cada cuadro.
   const [hud, setHud] = useState({ time: formatTime(initialTimeMs), red: room.score.red, blue: room.score.blue });
@@ -103,6 +104,11 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Enter'].includes(e.key) || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
         e.preventDefault();
       }
+      // Con Control apretado para derrapar, las teclas del juego no tienen que disparar atajos del
+      // navegador (Ctrl+D, Ctrl+S, Ctrl+A…). Ctrl+W no se puede frenar: para eso está el aviso al salir.
+      if (isCarMode && (e.key === 'Control' || (e.ctrlKey && isGameKey(e)))) {
+        e.preventDefault();
+      }
 
       if (isLocalGame) {
         handleLocalKeyDown(e, isCarMode, p1InputRef.current, p2InputRef.current);
@@ -137,13 +143,21 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       p2InputRef.current = {};
       zoomKeysRef.current = { zoomIn: false, zoomOut: false };
     }
+    // En coches se acelera con W y se derrapa con Control: Ctrl+W cierra la pestaña y ninguna página
+    // puede evitarlo. Por lo menos el navegador pregunta antes de cerrarla.
+    function onBeforeUnload(e) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
+    if (isCarMode) window.addEventListener('beforeunload', onBeforeUnload);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('beforeunload', onBeforeUnload);
     };
   }, [isCarMode, isLocalGame]);
 
@@ -299,8 +313,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       signaling: channel.signaling,
       myId: meId ?? `v${Math.random().toString(36).slice(2, 10)}`,
       onMessage(id, msg) {
-        if (msg?.c === 'p') handlers.onPlayer(id, msg.d);
-        else if (msg?.c === 'b') handlers.onBall(msg.d);
+        if (msg?.c === 'p') handlers.onPlayer(id, msg.d, true);
+        else if (msg?.c === 'b') handlers.onBall(msg.d, true);
         else if (msg?.c === 'm') handlers.onMatch(msg.d);
         else if (msg?.c === 'u') handlers.onPickups({ [msg.i]: msg.d });
       },
@@ -331,7 +345,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
     // Lo mismo llega por los dos caminos: por conexión directa y por Firebase. La copia repetida o
     // más vieja se descarta sola (una foto con hora anterior a la última no entra al búfer).
     const handlers = {
-      onPlayer(id, snap) {
+      onPlayer(id, snap, direct = false) {
         if (id === meId || !snap || snap.m !== matchNumber) return;
         if (net.match && snap.k < net.match.k) return; // foto de antes del último gol
         let remote = net.remotes.get(id);
@@ -339,12 +353,13 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           remote = createRemote();
           net.remotes.set(id, remote);
         }
+        if (direct) switchToDirect(remote);
         if (receiveSnapshot(remote, snap, serverNow())) net.stats.received += 1;
       },
       onPlayerGone(id) {
         net.remotes.delete(id);
       },
-      onBall(snap) {
+      onBall(snap, direct = false) {
         if (!snap || snap.m !== matchNumber || snap.k !== net.kickoff) return;
         if (snap.o === meId) return; // mi propia foto que vuelve
         net.maxSeq = Math.max(net.maxSeq, snap.s);
@@ -356,6 +371,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           net.ballRemote = createRemote();
           net.ballJump = true;
         }
+        if (direct) switchToDirect(net.ballRemote);
         receiveSnapshot(net.ballRemote, snap, serverNow());
       },
       onMatch(match) {
@@ -752,6 +768,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         drawBoostPickups(ctx, state.boostPickups);
       }
       drawGoals(ctx, field);
+      if (isCarMode) drawSkidMarks(ctx, state.players, skidRef.current, performance.now());
       drawBall(ctx, ball, isCarMode);
       Object.values(state.players).forEach((p) => {
         if (isCarMode) {
@@ -898,9 +915,11 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           <>
             <span style={{ color: '#e05050', fontWeight: 700 }}>🔴 J1 (Rojo):</span> WASD (mover) · <b>ESPACIO</b> (patada)
             {room.options.stamina && <> · <b>SHIFT Izq</b> (correr)</>}
+            {isCarMode && <> · <b>CTRL Izq</b> (derrape)</>}
             &nbsp;&nbsp;|&nbsp;&nbsp;
             <span style={{ color: '#4a90d9', fontWeight: 700 }}>🔵 J2 (Azul):</span> Flechas (mover) · <b>ENTER</b> (patada)
             {room.options.stamina && <> · <b>SHIFT Der</b> (correr)</>}
+            {isCarMode && <> · <b>CTRL Der</b> (derrape)</>}
             &nbsp;&nbsp;|&nbsp;&nbsp;
             <b>ESC</b> menú
           </>
@@ -910,6 +929,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
             <b>A / D</b> direccionar ruedas (flecha) &nbsp;·&nbsp;
             <b>S</b> reversa / frenar &nbsp;·&nbsp;
             <b>Shift</b> BOOST &nbsp;·&nbsp;
+            <b>Ctrl</b> DERRAPE &nbsp;·&nbsp;
             <b>Espacio</b> KICK / FLIP &nbsp;·&nbsp;
             <b>C</b> cambiar cámara (auto/fija) &nbsp;·&nbsp;
             <b>Ruedita / Q / E</b> zoom &nbsp;·&nbsp;
@@ -1057,6 +1077,70 @@ function blendBodies(state, prev, alpha) {
   return { ...state, players, ball };
 }
 
+// Teclas que usa el juego, para no dejar que Control + tecla dispare un atajo del navegador.
+function isGameKey(e) {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  return ['w', 'a', 's', 'd', 'q', 'e', 'c', 'x', ' ', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k);
+}
+
+// ─── Marcas de goma ─────────────────────────────────────────────────────────
+// Mientras un auto derrapa, sus ruedas traseras dejan una huella que se borra en un par de segundos.
+// Es solo dibujo: no está en el estado del partido ni viaja por la red (cada pantalla la arma sola
+// con el `isDrifting` de cada auto).
+const SKID_FADE_MS = 2200;
+const SKID_MAX_POINTS = 240;
+
+function drawSkidMarks(ctx, players, skids, now) {
+  const halfW = (CAR_CONFIG.width || 28) / 2;
+  const halfH = (CAR_CONFIG.height || 18) / 2;
+  for (const car of Object.values(players)) {
+    let marks = skids.get(car.id);
+    if (!marks) {
+      marks = [];
+      skids.set(car.id, marks);
+    }
+    if (car.isDrifting) {
+      const cos = Math.cos(car.angle || 0);
+      const sin = Math.sin(car.angle || 0);
+      const back = -halfW + 4;
+      const side = halfH - 2;
+      marks.push({
+        t: now,
+        l: { x: car.x + back * cos + side * sin, y: car.y + back * sin - side * cos },
+        r: { x: car.x + back * cos - side * sin, y: car.y + back * sin + side * cos },
+      });
+    } else if (marks.length && marks[marks.length - 1]) {
+      marks.push(null); // corte: la próxima huella empieza aparte
+    }
+    while (marks.length && (!marks[0] || now - marks[0].t > SKID_FADE_MS)) marks.shift();
+    if (marks.length > SKID_MAX_POINTS) marks.splice(0, marks.length - SKID_MAX_POINTS);
+  }
+  for (const [id, marks] of skids) {
+    if (!players[id]) skids.delete(id);
+  }
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 3.5;
+  for (const marks of skids.values()) {
+    for (let i = 1; i < marks.length; i++) {
+      const a = marks[i - 1];
+      const b = marks[i];
+      if (!a || !b) continue;
+      const alpha = 0.32 * (1 - (now - b.t) / SKID_FADE_MS);
+      if (alpha <= 0) continue;
+      ctx.strokeStyle = `rgba(20, 20, 20, ${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(a.l.x, a.l.y);
+      ctx.lineTo(b.l.x, b.l.y);
+      ctx.moveTo(a.r.x, a.r.y);
+      ctx.lineTo(b.r.x, b.r.y);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
 function angleDiff(a, b) {
   let d = (a ?? 0) - (b ?? 0);
   while (d > Math.PI) d -= Math.PI * 2;
@@ -1077,6 +1161,7 @@ function handleLocalKeyDown(e, isCarMode, p1Input, p2Input) {
     if (k === 'd' || code === 'KeyD') p1Input.turnRight = true;
     if (code === 'Space' || k === ' ') p1Input.kick = true;
     if (code === 'ShiftLeft') p1Input.boost = true;
+    if (code === 'ControlLeft') p1Input.drift = true;
   } else {
     if (k === 'w' || code === 'KeyW') p1Input.up = true;
     if (k === 's' || code === 'KeyS') p1Input.down = true;
@@ -1094,6 +1179,7 @@ function handleLocalKeyDown(e, isCarMode, p1Input, p2Input) {
     if (code === 'ArrowRight' || k === 'ArrowRight') p2Input.turnRight = true;
     if (code === 'Enter' || k === 'Enter') p2Input.kick = true;
     if (code === 'ShiftRight') p2Input.boost = true;
+    if (code === 'ControlRight') p2Input.drift = true;
   } else {
     if (code === 'ArrowUp' || k === 'ArrowUp') p2Input.up = true;
     if (code === 'ArrowDown' || k === 'ArrowDown') p2Input.down = true;
@@ -1117,6 +1203,7 @@ function handleLocalKeyUp(e, isCarMode, p1Input, p2Input) {
     if (k === 'd' || code === 'KeyD') p1Input.turnRight = false;
     if (code === 'Space' || k === ' ') p1Input.kick = false;
     if (code === 'ShiftLeft') p1Input.boost = false;
+    if (code === 'ControlLeft') p1Input.drift = false;
   } else {
     if (k === 'w' || code === 'KeyW') p1Input.up = false;
     if (k === 's' || code === 'KeyS') p1Input.down = false;
@@ -1134,6 +1221,7 @@ function handleLocalKeyUp(e, isCarMode, p1Input, p2Input) {
     if (code === 'ArrowRight' || k === 'ArrowRight') p2Input.turnRight = false;
     if (code === 'Enter' || k === 'Enter') p2Input.kick = false;
     if (code === 'ShiftRight') p2Input.boost = false;
+    if (code === 'ControlRight') p2Input.drift = false;
   } else {
     if (code === 'ArrowUp' || k === 'ArrowUp') p2Input.up = false;
     if (code === 'ArrowDown' || k === 'ArrowDown') p2Input.down = false;
@@ -1154,6 +1242,7 @@ function inputField(key, isCarMode) {
     if (k === 'a' || k === 'ArrowLeft') return 'turnLeft';
     if (k === 'd' || k === 'ArrowRight') return 'turnRight';
     if (k === 'Shift') return 'boost';
+    if (k === 'Control') return 'drift';
     return null;
   }
   if (k === 'w' || k === 'ArrowUp') return 'up';

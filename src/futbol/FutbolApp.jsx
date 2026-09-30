@@ -244,8 +244,8 @@ export default function FutbolApp({ onBackToMenu }) {
                   Enfrentate 1v1 contra un amigo en la misma computadora sin necesidad de internet.
                 </p>
                 <div style={{ background: '#181818', borderRadius: 4, padding: '8px 10px', marginBottom: 12, fontSize: 11, color: '#aaa', fontFamily: 'monospace', lineHeight: 1.6 }}>
-                  <div>🔴 <b>Jugador 1:</b> WASD + Espacio + Shift Izq</div>
-                  <div>🔵 <b>Jugador 2:</b> Flechitas + Enter + Shift Der</div>
+                  <div>🔴 <b>Jugador 1:</b> WASD + Espacio + Shift Izq (+ Ctrl Izq para derrapar en coches)</div>
+                  <div>🔵 <b>Jugador 2:</b> Flechitas + Enter + Shift Der (+ Ctrl Der para derrapar en coches)</div>
                 </div>
                 <button
                   type="button"

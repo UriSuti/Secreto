@@ -43,7 +43,7 @@ const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 // ─── Teclas ─────────────────────────────────────────────────────────────────
 // Viajan como un número de pocos bits. Sirven para seguir simulando a un remoto si sus fotos se
 // atrasan: con las teclas que tenía apretadas, la física adivina muy bien por dónde va.
-const INPUT_BITS = ['up', 'down', 'left', 'right', 'kick', 'shift', 'accelerate', 'brake', 'turnLeft', 'turnRight', 'boost'];
+const INPUT_BITS = ['up', 'down', 'left', 'right', 'kick', 'shift', 'accelerate', 'brake', 'turnLeft', 'turnRight', 'boost', 'drift'];
 
 export function packInput(input) {
   let bits = 0;
@@ -74,6 +74,7 @@ export function packPlayer(p, isCar, m, k, t, input) {
     snap.sa = round3(p.steerAngle || 0);
     snap.b = int(p.boost || 0);
     if (p.isBoosting) snap.bo = 1;
+    if (p.isDrifting) snap.dr = 1;
     if (p.isFlipping) {
       snap.f = 1;
       snap.ft = int(p.flipTime || 0);
@@ -104,6 +105,7 @@ export function applyPlayerSnapshot(target, snap, isCar) {
     target.steerAngle = snap.sa ?? 0;
     target.boost = snap.b ?? 0;
     target.isBoosting = Boolean(snap.bo);
+    target.isDrifting = Boolean(snap.dr);
     target.isFlipping = Boolean(snap.f);
     target.flipTime = snap.ft ?? 0;
     target.speed = snap.vx * Math.cos(snap.a) + snap.vy * Math.sin(snap.a);
@@ -159,6 +161,17 @@ export function receiveSnapshot(remote, snap, serverNow) {
   const gap = last ? snap.t - last.t : SEND_INTERVAL_MS;
   remote.lags.push({ lag: serverNow - snap.t, at: serverNow, gap });
   while (remote.lags.length > LAG_KEEP_MIN && remote.lags[0].at < serverNow - LAG_WINDOW_MS) remote.lags.shift();
+  return true;
+}
+
+// Primera foto que llega por conexión directa: lo medido hasta ahí vino por Firebase, con mucha más
+// demora. Si no se olvida, con el jugador quieto (una foto cada medio segundo) esas demoras viejas
+// seguían mandando varios segundos y se lo dibujaba con 400 ms de atraso en vez de 50.
+export function switchToDirect(remote) {
+  if (remote.direct) return false;
+  remote.direct = true;
+  remote.lags.length = 0;
+  remote.delay = null;
   return true;
 }
 
