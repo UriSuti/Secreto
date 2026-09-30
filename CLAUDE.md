@@ -314,4 +314,8 @@ jugador en la versión anterior, donde el host corregía a todos hacia su propia
   sus vecinos. Una aceleración pareja da ~0%; un tirón, mucho.
 
 ### Importante por cada nueva adicion al proyecto
-- El archivo `updates` (sin extensión, en la raíz) lleva un registro de las actualizaciones, por cada cambio que hagas, quiero que lo agregues ahi, si es un cambio pequeño, a la version x.y.z sumale a Z+1. Si es un cambio grande, a la version x.y.z, sumale Y+1 y establece el Z en 0. Si es un cambio gigantesco, como una gran actualizacion, a la version x.y.z sumale a X+1, y establece ambas Y,Z en 0.
+- El archivo `updates` (sin extensión, en la raíz) lleva un registro de las actualizaciones, por cada cambio que hagas, quiero que lo agregues ahi.
+- Si es un cambio muy pequeño, como un fix bug, a la version x.y.z sumale a Z+0.5
+- Si es un cambio pequeño, a la version x.y.z sumale a Z+1.
+- Si es un cambio grande, a la version x.y.z, sumale Y+1 y establece el Z en 0. 
+- Si es un cambio gigantesco, como una gran actualizacion, a la version x.y.z sumale a X+1, y establece ambas Y,Z en 0.

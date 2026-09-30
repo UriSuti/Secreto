@@ -245,7 +245,9 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
             const result = stepPhysics(state, inputs, PHYSICS_STEP_MS, { local: localSet });
             state = result.nextState;
             if (result.goal && goalSentFor !== localMatch.k) {
+              // Stop the remaining physics steps so the same goal cannot be detected twice.
               declareLocalGoal(result.goal, localMatch.k);
+              break;
             }
           }
           stateRef.current = state;
@@ -537,7 +539,10 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         channel.publishPickup(index, taken).catch(() => {});
       }
 
-      if (result.goal && net.ball.o === meId && net.goalSentFor !== match.k) declareGoal(result.goal, match.k);
+      if (result.goal && net.ball.o === meId && net.goalSentFor !== match.k) {
+        net.goalSentFor = match.k;
+        declareGoal(result.goal, match.k);
+      }
       return next;
     }
 
@@ -590,7 +595,11 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       if (view.phase === 'playing') {
         for (let i = 0; i < steps; i++) {
           if (i === steps - 1) net.prev = captureBodies(state, localSet, net.ball.o === meId);
+          const goalBefore = net.goalSentFor;
           state = stepOnline(state, now, ts, match, allDirect);
+          // stepOnline marca goalSentFor inmediatamente al declarar un gol.
+          // No ejecutar mas pasos de este mismo frame con la pelota dentro del arco.
+          if (net.goalSentFor !== goalBefore) break;
         }
         if (meId !== null && net.ball.o === meId) publishBall(now, false, allDirect);
       } else {

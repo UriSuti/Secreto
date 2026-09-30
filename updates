@@ -131,8 +131,11 @@
 
 --------------------------------------------------------------------------------------------------------------------
 
-LATEST 0.10.1 = Fútbol coches: derrape con Control
+0.10.1 = Fútbol coches: derrape con Control
 - Manteniendo Control (Ctrl Izq para el Jugador 1 y Ctrl Der para el Jugador 2 en el 1v1 local) el auto pierde agarre de costado y gira más rápido: se le abre la cola y sigue patinando para donde venía. Al soltar, recupera el agarre.
 - Mientras derrapa deja marcas de goma en la cancha, que se borran solas. Los demás jugadores también ven el derrape.
 - Como Ctrl+W cierra la pestaña (y el navegador no deja evitarlo), durante un partido de coches el navegador pregunta antes de cerrarla. Control ya no dispara otros atajos del navegador (Ctrl+D, Ctrl+S…).
 - Arreglado: al empezar el partido, a veces se veía a los demás con casi medio segundo de atraso durante varios segundos, hasta que se movían un rato. Quedaban medidas las demoras de Firebase de antes de abrirse la conexión directa.
+
+LATEST 0.10.15 = Arreglo bug de goles
+- Ya no se suman goles adicionales por error
