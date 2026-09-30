@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EXTRAP_MAX_MS, GOAL_PAUSE_MS, KICKOFF_COUNTDOWN_MS, MIN_DELAY_MS, SEND_INTERVAL_MS,
+  EXTRAP_MAX_MS, GOAL_PAUSE_MS, KICKOFF_COUNTDOWN_MS, MIN_DELAY_MS, PHYSICS_STEP_MS, SEND_INTERVAL_MS, fixedSteps,
   applyPlayerSnapshot, claimBeats, createRemote, goalMatch, initialMatch, latestWriter, matchPhase,
   packBall, packInput, packPlayer, receiveSnapshot, sameMotion, sampleRemote, targetDelay, unpackInput, updateDelay,
 } from '../src/futbol/net.js';
@@ -284,4 +284,45 @@ test('sala: cada partido tiene su número y el mismo gol no se cuenta dos veces'
   assert.equal(room.matchNumber, 2);
   room = applyAction(room, { type: 'goalScored', playerId: 'h', team: 'red', kickoff: 0 });
   assert.equal(room.score.red, 1, 'en el partido nuevo el saque 0 vuelve a valer');
+});
+
+// ─── paso fijo y conexión directa ───────────────────────────────────────────
+
+test('red: con fotos por conexión directa (una por cuadro) el retraso baja mucho', () => {
+  const firebase = createRemote();
+  const direct = createRemote();
+  for (let i = 0; i < 60; i++) receiveSnapshot(firebase, snap(i * 50, i), i * 50 + 250);
+  for (let i = 0; i < 200; i++) receiveSnapshot(direct, snap(i * 15, i), i * 15 + 30);
+  const d = targetDelay(direct);
+  assert.ok(d >= 30 + 15, `cubre la demora y el hueco entre fotos (${d})`);
+  assert.ok(d < 80, `mucho menos que por Firebase (${d} contra ${targetDelay(firebase)})`);
+});
+
+test('física: el paso fijo simula lo mismo con 60 que con 144 cuadros por segundo', () => {
+  const run = (frameMs, totalSteps) => {
+    let state = createGameState([{ id: 'a', name: 'A', team: 'red' }], {});
+    state.ball.vx = 900;
+    state.ball.vy = 300;
+    const clock = { acc: 0 };
+    let done = 0;
+    while (done < totalSteps) {
+      const { steps } = fixedSteps(clock, frameMs);
+      for (let i = 0; i < steps && done < totalSteps; i++, done++) {
+        state = stepPhysics(state, { a: { right: true } }, PHYSICS_STEP_MS, { local: ['a'] }).nextState;
+      }
+    }
+    return state;
+  };
+  // Un segundo de juego: la cantidad de pasos no depende de los cuadros por segundo de la pantalla.
+  const slow = run(1000 / 60, 120);
+  const fast = run(1000 / 144, 120);
+  assert.ok(Math.abs(slow.ball.x - fast.ball.x) < 1e-6 && Math.abs(slow.ball.y - fast.ball.y) < 1e-6, 'la pelota termina en el mismo lugar');
+  assert.ok(Math.abs(slow.players.a.x - fast.players.a.x) < 1e-6, 'el jugador también');
+});
+
+test('física: si la pestaña se trabó, no intenta recuperar todo de golpe', () => {
+  const clock = { acc: 0 };
+  const { steps, alpha } = fixedSteps(clock, 5000);
+  assert.ok(steps <= 8);
+  assert.ok(alpha >= 0 && alpha < 1);
 });

@@ -226,8 +226,31 @@ Notas sobre algunas:
 
 ## Fútbol: sincronización en tiempo real
 
-Todo en `src/futbol/net.js` (lógica pura, con tests en `tests/futbol-net.test.js`) y el bucle de
-`FutbolGame.jsx`. Va por `futbol/{sala}` en la base, **fuera** de `rooms/`: son fotos que se pisan
+Todo en `src/futbol/net.js` (lógica pura, con tests en `tests/futbol-net.test.js`), `src/futbol/p2p.js`
+(conexión directa) y el bucle de `FutbolGame.jsx`.
+
+**Las fotos van directo entre navegadores (WebRTC DataChannel, sin orden ni reenvíos)**, una por cuadro.
+El hosting es estático, así que no hay servidor WebSocket propio; y por Firebase cada foto tardaba de
+200 a 1.200 ms. Firebase queda para tres cosas: la señalización (presentar a las pantallas), el partido
+(`match`, con transacción) y el **respaldo**: si con alguien no se arma el canal directo (redes que lo
+bloquean; no hay servidor TURN), las fotos para esa persona siguen yendo por Firebase cada 50 ms. Si
+todos reciben directo, igual se escribe en Firebase una foto por segundo. Lo mismo puede llegar por los
+dos caminos: la copia más vieja se descarta sola en `receiveSnapshot` (hora anterior a la última).
+
+- Cada par de pantallas arma un solo canal y **lo inicia la de id menor**. Cada montaje tiene una
+  sesión (`sid`) nueva; un mensaje dirigido a una sesión vieja se ignora. Solo el que inicia reintenta
+  (hasta 4 veces, si no abre en 8 s).
+- «¿Todos reciben directo?» se pregunta por **los jugadores de la sala**, no por los anunciados: alguien
+  sin WebRTC nunca se anuncia, y si se lo contara por los anunciados se le dejaría de mandar por Firebase.
+- El HUD muestra el estado bajo el reloj (`data-link`: `directo`, `mixto` o `firebase`).
+- Por el canal viajan `{ c: 'p' | 'b' | 'm' | 'u', d }`: jugador, pelota, partido (tras un gol) y turbo.
+
+**La física corre a paso fijo** (`PHYSICS_STEP_MS`, 1/120 s, con `fixedSteps`), online y en el 1v1
+local. Con el paso igual al largo del cuadro, una pantalla de 144 Hz y otra de 60 Hz resolvían distinto
+los choques y las patadas, y cada una veía otra pelota. Lo propio se dibuja interpolado entre los dos
+últimos pasos (`captureBodies` / `blendBodies`), así no hay tirones.
+
+En la base, todo va por `futbol/{sala}`, **fuera** de `rooms/`: son fotos que se pisan
 muchas veces por segundo y no pasan por el reducer ni por el tope de 30.000 caracteres.
 
 | Rama | Quién escribe | Qué es |
@@ -236,11 +259,13 @@ muchas veces por segundo y no pasan por el reducer ni por el tope de 30.000 cara
 | `ball` | quien la tocó último | Posición y velocidad, con dueño `o` y cambios de dueño `s` |
 | `match` | cualquiera, con transacción | Saque `k`, hora del servidor en que se juega `at`, reloj `c`, marcador `sr`/`sb` |
 | `pickups/{i}` | quien agarró el turbo | Hora a la que reaparece (modo coches) |
+| `peers/{id}` | solo ese jugador | Su sesión, para armar la conexión directa. Se borra al desconectarse |
+| `signal/{id}` | cualquiera | Buzón de oferta, respuesta y candidatos WebRTC para ese jugador. Se borra al leerse |
 
 Las reglas de `database.rules.json` ya permiten `futbol/{4 letras}`; sin eso el online no anda.
 
 **La regla central: cada pantalla es dueña de su jugador.** Lo mueve con la física local en el mismo
-cuadro en que se aprieta la tecla, y publica una foto cada 50 ms (quieto, cada 500). **Nunca** se
+cuadro en que se aprieta la tecla, y publica una foto por cuadro por el canal directo (quieto, cada 500 ms). **Nunca** se
 aplica sobre el jugador local nada que venga de la red: eso era exactamente el lag del segundo
 jugador en la versión anterior, donde el host corregía a todos hacia su propia vista atrasada.
 
@@ -248,7 +273,8 @@ jugador en la versión anterior, donde el host corregía a todos hacia su propia
   donde dijo su foto, no tocan la pelota, y en un choque solo se corrige al local (el remoto se
   corrige en su pantalla). Sin `local` simula a todos, como antes: los tests viejos usan eso.
 - Los remotos se dibujan **interpolando** entre fotos, un poco en el pasado. El retraso se ajusta
-  solo con el percentil 95 de las demoras de los últimos 3 s: sube rápido y baja despacio.
+  solo con el percentil 95 de las demoras de los últimos 3 s más el hueco típico entre fotos: sube
+  rápido y baja despacio. Por conexión directa queda en unos 50 ms.
 - Si las fotos se atrasan, el remoto se sigue simulando con la física y sus teclas
   (`guessPlayer`) y, cuando llegan las reales, la diferencia se funde en ~120 ms.
 - **La pelota la simula quien la tocó último.** Tocarla la reclama al instante (`claimBeats`: gana
@@ -271,8 +297,12 @@ jugador en la versión anterior, donde el host corregía a todos hacia su propia
   retraso se calcula relativo; no intentes corregirlo.
 - **Con 4 escrituras en vuelo** (el primer intento) la latencia normal frenaba el envío a ~10 fotos
   por segundo y las fotos esperaban en cola antes de salir.
+- **Para probar con dos jugadores en un navegador automatizado, usá dos navegadores separados**, no
+  dos pestañas del mismo: la pestaña de fondo recibe menos cuadros y las demoras medidas salen
+  infladas (daba ~300 ms donde en realidad había 50). Para probar el respaldo por Firebase, borrá
+  `window.RTCPeerConnection` antes de cargar la página en uno de los dos.
 - Para medir fluidez hay un gancho **solo en desarrollo**: `window.__futbol` (`stateRef`, `meId`,
-  `net` con los búferes, retrasos y contadores). Vite lo saca del build de producción. La métrica
+  `net` con los búferes, retrasos y contadores, `mesh` con `isOpen(id)`). Vite lo saca del build de producción. La métrica
   que sirve es la *aspereza*: cuánto se aparta la velocidad dibujada de cada cuadro del promedio de
   sus vecinos. Una aceleración pareja da ~0%; un tirón, mucho.
 

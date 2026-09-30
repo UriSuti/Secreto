@@ -6,9 +6,15 @@
 // La pelota la simula quien la tocó último; los demás la interpolan igual que a su dueño.
 // El host no tiene ningún rol especial en el movimiento.
 
-export const SEND_INTERVAL_MS = 50;   // 20 fotos por segundo mientras hay movimiento
+export const SEND_INTERVAL_MS = 50;   // 20 fotos por segundo por Firebase mientras hay movimiento
+export const P2P_SEND_INTERVAL_MS = 15; // por conexión directa: una foto por cuadro (~60 por segundo)
+// Si todos reciben por conexión directa, Firebase queda como respaldo y recibe una foto por segundo.
+export const FIREBASE_BACKUP_MS = 1000;
 export const HEARTBEAT_MS = 500;      // quieto, igual avisa que sigue ahí
-export const MIN_DELAY_MS = 70;       // retraso mínimo con que se dibuja a los remotos
+export const MIN_DELAY_MS = 35;       // retraso mínimo con que se dibuja a los remotos
+// Paso fijo de la física: todas las pantallas simulan igual, tengan 60 o 144 cuadros por segundo.
+export const PHYSICS_STEP_MS = 1000 / 120;
+const MAX_STEPS_PER_FRAME = 8;
 export const MAX_DELAY_MS = 1000;     // ...y máximo, aunque la conexión esté muy mal
 // Si faltan fotos (Firebase a veces no entrega nada por medio segundo y después manda todo junto),
 // el remoto se sigue simulando con la física y sus teclas hasta este límite.
@@ -149,19 +155,38 @@ export function receiveSnapshot(remote, snap, serverNow) {
 
   // La ventana es por tiempo y no por cantidad: con el jugador quieto llega una foto cada medio
   // segundo, y un pico viejo no tiene que seguir pesando medio minuto después.
-  remote.lags.push({ lag: serverNow - snap.t, at: serverNow });
+  // `gap` es cada cuánto manda fotos: por conexión directa, mucho más seguido que por Firebase.
+  const gap = last ? snap.t - last.t : SEND_INTERVAL_MS;
+  remote.lags.push({ lag: serverNow - snap.t, at: serverNow, gap });
   while (remote.lags.length > LAG_KEEP_MIN && remote.lags[0].at < serverNow - LAG_WINDOW_MS) remote.lags.shift();
   return true;
 }
 
 // Cuánto en el pasado conviene dibujar. Firebase entrega las fotos en ráfagas (a veces llegan
 // varias juntas, la más vieja con bastante demora), así que no alcanza con el promedio: se usa el
-// percentil 95. Una ráfaga de fotos tardías lo sube; un pico aislado, no.
+// percentil 95. Una ráfaga de fotos tardías lo sube; un pico aislado, no. Encima se suma cuánto
+// hay entre dos fotos (la mediana), para tener casi siempre una foto más nueva que la que se dibuja.
 export function targetDelay(remote) {
   if (remote.lags.length === 0) return MIN_DELAY_MS + SEND_INTERVAL_MS;
   const lags = remote.lags.map((l) => l.lag).sort((a, b) => a - b);
   const p95 = lags[Math.min(lags.length - 1, Math.floor(lags.length * 0.95))];
-  return clamp(p95 + SEND_INTERVAL_MS + 20, MIN_DELAY_MS, MAX_DELAY_MS);
+  const gaps = remote.lags.map((l) => clamp(l.gap ?? SEND_INTERVAL_MS, 1, SEND_INTERVAL_MS)).sort((a, b) => a - b);
+  const gap = gaps[Math.floor(gaps.length / 2)];
+  return clamp(p95 + gap + 15, MIN_DELAY_MS, MAX_DELAY_MS);
+}
+
+// Cuántos pasos fijos de física tocan en este cuadro. Lo que sobra queda para el cuadro siguiente,
+// y `alpha` dice cuánto se avanzó hacia el próximo paso (sirve para dibujar entre dos pasos).
+// Si la pestaña estuvo trabada, no se intenta recuperar todo: se descarta lo que pase del tope.
+export function fixedSteps(clock, dt) {
+  clock.acc = (clock.acc || 0) + dt;
+  let steps = Math.floor(clock.acc / PHYSICS_STEP_MS);
+  if (steps > MAX_STEPS_PER_FRAME) {
+    steps = MAX_STEPS_PER_FRAME;
+    clock.acc = PHYSICS_STEP_MS * steps;
+  }
+  clock.acc -= steps * PHYSICS_STEP_MS;
+  return { steps, alpha: clock.acc / PHYSICS_STEP_MS };
 }
 
 // El retraso sube rápido (si faltan fotos, el remoto se vería congelado) y baja más despacio (para

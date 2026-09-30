@@ -5,16 +5,24 @@ import {
   FIELD, PLAYER_CONFIG, CAR_CONFIG, BALL_CONFIG, CAR_BALL_CONFIG, advanceBall, createGameState, resetPositions, stepPhysics,
 } from './physics.js';
 import {
-  BALL_SMOOTH_MS, CLAIM_COOLDOWN_MS, FIRST_COUNTDOWN_MS, HEARTBEAT_MS, REMOTE_SMOOTH_MS, SEND_INTERVAL_MS,
-  applyPlayerSnapshot, claimBeats, createRemote, goalMatch, initialMatch, latestWriter, matchPhase,
+  BALL_SMOOTH_MS, CLAIM_COOLDOWN_MS, FIREBASE_BACKUP_MS, FIRST_COUNTDOWN_MS, HEARTBEAT_MS, P2P_SEND_INTERVAL_MS,
+  PHYSICS_STEP_MS, REMOTE_SMOOTH_MS, SEND_INTERVAL_MS,
+  applyPlayerSnapshot, claimBeats, createRemote, fixedSteps, goalMatch, initialMatch, latestWriter, matchPhase,
   packBall, packPlayer, receiveSnapshot, sameMotion, sampleRemote, unpackInput, updateDelay,
 } from './net.js';
+import { createMesh } from './p2p.js';
 
 const TEAM_COLOR = {
   red: '#e05050',
   blue: '#4a90d9',
 };
 const TEAM_NAME = { red: 'ROJO', blue: 'AZUL' };
+const LINK_LABEL = { directo: '● conexión directa', mixto: '● conexión mixta', firebase: '● conexión lenta' };
+const LINK_HINT = {
+  directo: 'Las jugadas van directo de pantalla a pantalla.',
+  mixto: 'Con algunos jugadores no se pudo conectar directo: sus jugadas pasan por el servidor y llegan más tarde.',
+  firebase: 'No se pudo conectar directo con nadie (puede ser la red): las jugadas pasan por el servidor y llegan más tarde.',
+};
 
 // ─── Constantes de render ──────────────────────────────────────────────────
 const GRASS_COLOR = '#3a7d44';
@@ -54,6 +62,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
   // HUD: se actualiza solo cuando cambia lo que se ve, no en cada cuadro.
   const [hud, setHud] = useState({ time: formatTime(initialTimeMs), red: room.score.red, blue: room.score.blue });
+  // Cómo llegan las fotos de los demás: 'directo' (WebRTC), 'mixto' o 'firebase'. Vacío si juego solo.
+  const [link, setLink] = useState('');
   const [showMenu, setShowMenu] = useState(false);
 
   const [canvasSize, setCanvasSize] = useState({ w: FIELD.width, h: FIELD.height });
@@ -138,7 +148,9 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
   }, [isCarMode, isLocalGame]);
 
   // ─── Red + bucle del partido ─────────────────────────────────────────────
-  // Mi jugador: tecla → movimiento → dibujo, todo en el mismo cuadro; a la red va una foto cada 50 ms.
+  // Mi jugador: tecla → movimiento → dibujo, todo en el mismo cuadro; a la red va una foto por
+  // cuadro por conexión directa (o cada 50 ms por Firebase, si la directa no se pudo armar).
+  // La física corre a paso fijo, así la pelota se comporta igual en todas las pantallas.
   // Los demás: foto → búfer → interpolación → dibujo suave, un poco en el pasado.
   // La pelota la simula quien la tocó último; mientras la tiene otro, se interpola como a él.
   useEffect(() => {
@@ -189,6 +201,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
       let raf = 0;
       let lastTs = null;
+      const clock = { acc: 0 };
+      let prev = null;
       function frame(ts) {
         raf = requestAnimationFrame(frame);
         const dt = lastTs === null ? 16 : Math.min(ts - lastTs, 50);
@@ -198,23 +212,30 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
 
         if (localMatch.k !== localKickoff && view.phase !== 'goal') {
           applyLocalKickoff(localMatch.k);
+          prev = null;
         }
 
         let state = stateRef.current;
+        const { steps, alpha } = fixedSteps(clock, dt);
 
         if (view.phase === 'playing') {
           const inputs = {
             [p1Id]: p1InputRef.current,
             [p2Id]: p2InputRef.current,
           };
-          const result = stepPhysics(state, inputs, dt, { local: localSet });
-          state = result.nextState;
-          stateRef.current = state;
-
-          if (result.goal && goalSentFor !== localMatch.k) {
-            declareLocalGoal(result.goal, localMatch.k);
+          for (let i = 0; i < steps; i++) {
+            if (i === steps - 1) prev = captureBodies(state, localSet, true);
+            const result = stepPhysics(state, inputs, PHYSICS_STEP_MS, { local: localSet });
+            state = result.nextState;
+            if (result.goal && goalSentFor !== localMatch.k) {
+              declareLocalGoal(result.goal, localMatch.k);
+            }
           }
+          stateRef.current = state;
+        } else {
+          prev = null;
         }
+        const shown = blendBodies(state, prev, alpha);
 
         if (view.phase === 'ended' && !endNotified) {
           endNotified = true;
@@ -226,8 +247,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         if (zoomKeysRef.current.zoomOut) zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.02 * (dt / 16));
         if (zoomKeysRef.current.zoomIn) zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.02 * (dt / 16));
 
-        updateCamera(state, dt);
-        renderScene(canvas.getContext('2d'), state, state.ball, overlayText(view, localMatch, ts - mountedAt));
+        updateCamera(shown, dt);
+        renderScene(canvas.getContext('2d'), shown, shown.ball, overlayText(view, localMatch, ts - mountedAt));
       }
 
       raf = requestAnimationFrame(frame);
@@ -256,16 +277,35 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       lastPlayerAt: 0,
       lastBallSnap: null,
       lastBallAt: 0,
+      directPlayerSnap: null,
+      directPlayerAt: 0,
+      directBallSnap: null,
+      directBallAt: 0,
+      clock: { acc: 0 },                         // paso fijo de la física
+      prev: null,                                // mis cuerpos antes del último paso, para dibujar entre pasos
       goalSentFor: -1,
       endNotified: false,
       mountedAt: performance.now(),
-      stats: { sent: 0, sentBytes: 0, received: 0 },
+      stats: { sent: 0, sentBytes: 0, sentDirect: 0, received: 0 },
     };
     const serverNow = () => Date.now() + net.offset;
     const localSet = new Set(meId ? [meId] : []);
     const sendPlayer = latestWriter((snap) => channel.publishPlayer(meId, snap));
     const sendBall = latestWriter((snap) => channel.publishBall(snap));
-    if (import.meta.env.DEV) window.__futbol = { stateRef, meId, net };
+
+    // Canal directo con cada pantalla. Firebase solo los presenta; si con alguien no se puede,
+    // sus fotos siguen yendo y viniendo por Firebase.
+    const mesh = createMesh({
+      signaling: channel.signaling,
+      myId: meId ?? `v${Math.random().toString(36).slice(2, 10)}`,
+      onMessage(id, msg) {
+        if (msg?.c === 'p') handlers.onPlayer(id, msg.d);
+        else if (msg?.c === 'b') handlers.onBall(msg.d);
+        else if (msg?.c === 'm') handlers.onMatch(msg.d);
+        else if (msg?.c === 'u') handlers.onPickups({ [msg.i]: msg.d });
+      },
+    });
+    if (import.meta.env.DEV) window.__futbol = { stateRef, meId, net, mesh };
 
     function countSent(snap) {
       net.stats.sent += 1;
@@ -288,7 +328,9 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       }
     });
 
-    const offChannel = channel.subscribe({
+    // Lo mismo llega por los dos caminos: por conexión directa y por Firebase. La copia repetida o
+    // más vieja se descarta sola (una foto con hora anterior a la última no entra al búfer).
+    const handlers = {
       onPlayer(id, snap) {
         if (id === meId || !snap || snap.m !== matchNumber) return;
         if (net.match && snap.k < net.match.k) return; // foto de antes del último gol
@@ -317,7 +359,9 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         receiveSnapshot(net.ballRemote, snap, serverNow());
       },
       onMatch(match) {
-        if (match && match.m === matchNumber) net.match = match;
+        if (!match || match.m !== matchNumber) return;
+        if (net.match && net.match.m === match.m && match.k < net.match.k) return; // llegó tarde
+        net.match = match;
       },
       onPickups(pickups) {
         const list = stateRef.current?.boostPickups;
@@ -330,7 +374,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           target.respawnTimer = Math.max(target.respawnTimer || 0, pickup.r - now);
         }
       },
-    });
+    };
+    const offChannel = channel.subscribe(handlers);
     if (meId) channel.leaveOnDisconnect(meId).catch(() => {});
 
     // Saque nuevo (arranque o después de un gol): todos a su lugar y la pelota al medio.
@@ -350,28 +395,45 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       net.ballJump = false;
       net.lastPlayerSnap = null;
       net.lastBallSnap = null;
+      net.directPlayerSnap = null;
+      net.directBallSnap = null;
+      net.prev = null;
     }
 
-    function publishMe(now) {
-      if (!meId || !net.match || now - net.lastPlayerAt < SEND_INTERVAL_MS) return;
+    // Cada foto sale por dos caminos con su propio ritmo: por conexión directa, una por cuadro; por
+    // Firebase cada 50 ms, o una por segundo de respaldo si todos ya reciben directo.
+    function due(now, snap, lastSnap, lastAt, interval) {
+      if (now - lastAt < interval) return false;
+      return !sameMotion(snap, lastSnap) || now - lastAt >= HEARTBEAT_MS;
+    }
+
+    function publish(now, snap, kind, force, allDirect) {
+      const [directSnap, directAt] = kind === 'p' ? ['directPlayerSnap', 'directPlayerAt'] : ['directBallSnap', 'directBallAt'];
+      const [slowSnap, slowAt] = kind === 'p' ? ['lastPlayerSnap', 'lastPlayerAt'] : ['lastBallSnap', 'lastBallAt'];
+      if (mesh && (force || due(now, snap, net[directSnap], net[directAt], P2P_SEND_INTERVAL_MS))) {
+        net[directSnap] = snap;
+        net[directAt] = now;
+        mesh.broadcast({ c: kind, d: snap });
+        net.stats.sentDirect += 1;
+      }
+      const interval = allDirect ? FIREBASE_BACKUP_MS : SEND_INTERVAL_MS;
+      if (force || due(now, snap, net[slowSnap], net[slowAt], interval)) {
+        net[slowSnap] = snap;
+        net[slowAt] = now;
+        (kind === 'p' ? sendPlayer : sendBall)(snap);
+        countSent(snap);
+      }
+    }
+
+    function publishMe(now, allDirect) {
+      if (!meId || !net.match) return;
       const mine = stateRef.current.players[meId];
       if (!mine) return;
-      const snap = packPlayer(mine, isCarMode, matchNumber, net.kickoff, now, myInputRef.current);
-      if (sameMotion(snap, net.lastPlayerSnap) && now - net.lastPlayerAt < HEARTBEAT_MS) return;
-      net.lastPlayerSnap = snap;
-      net.lastPlayerAt = now;
-      sendPlayer(snap);
-      countSent(snap);
+      publish(now, packPlayer(mine, isCarMode, matchNumber, net.kickoff, now, myInputRef.current), 'p', false, allDirect);
     }
 
-    function publishBall(now, force) {
-      if (!force && now - net.lastBallAt < SEND_INTERVAL_MS) return;
-      const snap = packBall(stateRef.current.ball, matchNumber, net.kickoff, meId, net.ball.s, now);
-      if (!force && sameMotion(snap, net.lastBallSnap) && now - net.lastBallAt < HEARTBEAT_MS) return;
-      net.lastBallSnap = snap;
-      net.lastBallAt = now;
-      sendBall(snap);
-      countSent(snap);
+    function publishBall(now, force, allDirect) {
+      publish(now, packBall(stateRef.current.ball, matchNumber, net.kickoff, meId, net.ball.s, now), 'b', force, allDirect);
     }
 
     // El gol lo declara solo quien simula la pelota, y con transacción: un gol por saque.
@@ -382,8 +444,11 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         if (current === null) return null;
         if (current.m !== matchNumber || current.k !== k) return undefined;
         return goalMatch(current, team, serverNow(), timed, goalsToWin);
-      }).then(({ committed }) => {
-        if (committed) callbacksRef.current.onGoal(team, k);
+      }).then(({ committed, match }) => {
+        if (!committed) return;
+        // Los demás se enteran del gol por el canal directo, sin esperar a que Firebase se lo avise.
+        if (match) mesh?.broadcast({ c: 'm', d: match });
+        callbacksRef.current.onGoal(team, k);
       }).catch(() => {});
     }
 
@@ -403,6 +468,60 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
     }
     canvas?.addEventListener('wheel', onWheel, { passive: false });
 
+    const otherIds = () => roomRef.current.players.map((p) => p.id).filter((id) => id !== meId);
+
+    let lastLink = null;
+    let lastLinkCheck = -Infinity;
+    function updateLink(ts) {
+      if (ts - lastLinkCheck < 1000) return;
+      lastLinkCheck = ts;
+      const others = otherIds();
+      const direct = others.filter((id) => mesh?.isOpen(id)).length;
+      let value = 'firebase';
+      if (others.length === 0) value = '';
+      else if (direct === others.length) value = 'directo';
+      else if (direct > 0) value = 'mixto';
+      if (value !== lastLink) {
+        lastLink = value;
+        setLink(value);
+      }
+    }
+
+    // Un paso fijo de física. Mi jugador se mueve con mis teclas; la pelota, solo si es mía o si la
+    // acabo de tocar (entonces pasa a ser mía).
+    function stepOnline(state, now, ts, match, allDirect) {
+      const ballIsMine = meId !== null && net.ball.o === meId;
+      const seen = ballIsMine ? null : { ...state.ball };
+      const inputs = meId ? { [meId]: myInputRef.current } : {};
+      const result = stepPhysics(state, inputs, PHYSICS_STEP_MS, { local: localSet });
+      const next = result.nextState;
+      stateRef.current = next;
+
+      if (!ballIsMine) {
+        if (result.touched && meId && ts - net.lastClaimAt >= CLAIM_COOLDOWN_MS) {
+          // La toqué yo: desde ya la simulo yo, sin esperar la confirmación de nadie.
+          net.lastClaimAt = ts;
+          net.maxSeq += 1;
+          net.ball = { o: meId, s: net.maxSeq };
+          publishBall(now, true, allDirect);
+        } else {
+          // La tiene otro: el paso de física solo servía para ver si la toqué.
+          Object.assign(next.ball, seen);
+        }
+      }
+
+      for (const index of result.pickupsTaken || []) {
+        const pickup = next.boostPickups?.[index];
+        if (!pickup) continue;
+        const taken = { r: Math.round(now + pickup.respawnDelay) };
+        mesh?.broadcast({ c: 'u', i: index, d: taken });
+        channel.publishPickup(index, taken).catch(() => {});
+      }
+
+      if (result.goal && net.ball.o === meId && net.goalSentFor !== match.k) declareGoal(result.goal, match.k);
+      return next;
+    }
+
     let raf = 0;
     let lastTs = null;
     function frame(ts) {
@@ -410,6 +529,8 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       const dt = lastTs === null ? 16 : Math.min(ts - lastTs, 50);
       lastTs = ts;
       const now = serverNow();
+      const allDirect = Boolean(mesh) && otherIds().every((id) => mesh.isOpen(id));
+      updateLink(ts);
       const match = net.match;
       const view = match
         ? matchPhase(match, now, timed)
@@ -445,36 +566,19 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
         }
       }
 
-      // 3. Mi jugador: física local con mis teclas, en este mismo cuadro.
+      // 3. Mi jugador: física local con mis teclas, a paso fijo (120 por segundo), en este mismo cuadro.
+      const { steps, alpha } = fixedSteps(net.clock, dt);
       if (view.phase === 'playing') {
-        const seen = ballIsMine ? null : { ...state.ball };
-        const inputs = meId ? { [meId]: myInputRef.current } : {};
-        const result = stepPhysics(state, inputs, dt, { local: localSet });
-        state = result.nextState;
-        stateRef.current = state;
-
-        if (ballIsMine) {
-          publishBall(now, false);
-        } else if (result.touched && meId && ts - net.lastClaimAt >= CLAIM_COOLDOWN_MS) {
-          // La toqué yo: desde ya la simulo yo, sin esperar la confirmación de nadie.
-          net.lastClaimAt = ts;
-          net.maxSeq += 1;
-          net.ball = { o: meId, s: net.maxSeq };
-          publishBall(now, true);
-        } else {
-          // La tiene otro: el paso de física solo servía para ver si la toqué.
-          Object.assign(state.ball, seen);
+        for (let i = 0; i < steps; i++) {
+          if (i === steps - 1) net.prev = captureBodies(state, localSet, net.ball.o === meId);
+          state = stepOnline(state, now, ts, match, allDirect);
         }
-
-        for (const index of result.pickupsTaken || []) {
-          const pickup = state.boostPickups?.[index];
-          if (pickup) channel.publishPickup(index, { r: Math.round(now + pickup.respawnDelay) }).catch(() => {});
-        }
-
-        if (result.goal && net.ball.o === meId && net.goalSentFor !== match.k) declareGoal(result.goal, match.k);
+        if (meId !== null && net.ball.o === meId) publishBall(now, false, allDirect);
+      } else {
+        net.prev = null;
       }
 
-      publishMe(now);
+      publishMe(now, allDirect);
 
       if (view.phase === 'ended' && !net.endNotified) {
         net.endNotified = true;
@@ -487,8 +591,10 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       if (zoomKeysRef.current.zoomOut) zoomScaleRef.current = Math.max(0.4, zoomScaleRef.current - 0.02 * (dt / 16));
       if (zoomKeysRef.current.zoomIn) zoomScaleRef.current = Math.min(2.5, zoomScaleRef.current + 0.02 * (dt / 16));
 
-      updateCamera(state, dt);
-      renderScene(canvas.getContext('2d'), state, smoothBall(state.ball, dt), overlayText(view, match, ts - net.mountedAt));
+      // Entre dos pasos de física se dibuja lo propio a mitad de camino: con 144 Hz no hay tirones.
+      const shown = blendBodies(state, net.prev, alpha);
+      updateCamera(shown, dt);
+      renderScene(canvas.getContext('2d'), shown, smoothBall(shown.ball, dt), overlayText(view, match, ts - net.mountedAt));
     }
 
     // Sigue a un remoto más allá de su última foto con la física y las teclas que tenía apretadas.
@@ -688,6 +794,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       canvas?.removeEventListener('wheel', onWheel);
       offChannel();
       offOffset();
+      mesh?.close();
       if (meId) channel.removePlayer(meId).catch(() => {});
       if (import.meta.env.DEV && window.__futbol?.net === net) delete window.__futbol;
     };
@@ -720,6 +827,15 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           <div style={{ color: '#d4af37', fontSize: 16, fontWeight: 700, marginTop: 4 }}>
             {hud.time}
           </div>
+          {link && (
+            <div
+              data-link={link}
+              title={LINK_HINT[link]}
+              style={{ color: link === 'directo' ? '#6fcf7f' : '#e0a050', fontSize: 11, marginTop: 3 }}
+            >
+              {LINK_LABEL[link]}
+            </div>
+          )}
         </div>
 
         {/* Lado Azul y Botones */}
@@ -912,6 +1028,33 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
       )}
     </div>
   );
+}
+
+// Posiciones de los cuerpos que simula esta pantalla, antes del último paso de física.
+function captureBodies(state, local, withBall) {
+  const players = {};
+  for (const id of local) {
+    const p = state.players[id];
+    if (p) players[id] = { x: p.x, y: p.y, angle: p.angle };
+  }
+  return { players, ball: withBall ? { x: state.ball.x, y: state.ball.y } : null };
+}
+
+// El estado para dibujar: lo capturado, avanzado `alpha` hacia el último paso.
+function blendBodies(state, prev, alpha) {
+  if (!prev) return state;
+  const lerp = (a, b) => a + (b - a) * alpha;
+  const players = { ...state.players };
+  for (const [id, before] of Object.entries(prev.players)) {
+    const current = players[id];
+    if (!current) continue;
+    players[id] = { ...current, x: lerp(before.x, current.x), y: lerp(before.y, current.y) };
+    if (current.angle !== undefined && before.angle !== undefined) {
+      players[id].angle = current.angle - angleDiff(current.angle, before.angle) * (1 - alpha);
+    }
+  }
+  const ball = prev.ball ? { ...state.ball, x: lerp(prev.ball.x, state.ball.x), y: lerp(prev.ball.y, state.ball.y) } : state.ball;
+  return { ...state, players, ball };
 }
 
 function angleDiff(a, b) {

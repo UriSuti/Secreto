@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import {
-  getDatabase, onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, ref, remove, runTransaction, set,
+  getDatabase, onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, push, ref, remove, runTransaction, set,
 } from 'firebase/database';
 import { firebaseConfig } from './firebaseConfig.js';
 import { ROOM_TTL_MS, makeCode, parseRoom, serializeRoom } from './codigo-secreto/game.js';
@@ -64,6 +64,8 @@ export function subscribeConnection(onChange) {
 //   futbol/{sala}/ball          la pelota (la escribe quien la tocó último)
 //   futbol/{sala}/match         saque, reloj y marcador (con transacción)
 //   futbol/{sala}/pickups/{i}   turbos agarrados (modo coches)
+//   futbol/{sala}/peers/{id}    sesión de cada pantalla, para armar la conexión directa (WebRTC)
+//   futbol/{sala}/signal/{id}   buzón de ofertas, respuestas y candidatos WebRTC para ese jugador
 export function futbolChannel(code) {
   const db = database();
   const base = `futbol/${code}`;
@@ -81,6 +83,23 @@ export function futbolChannel(code) {
         return next === undefined ? undefined : next;
       });
       return { committed: result.committed, match: result.snapshot.val() };
+    },
+    // Firebase solo presenta a las pantallas entre sí; después las fotos van directo de una a otra.
+    signaling: {
+      async announce(id, sid) {
+        await remove(ref(db, `${base}/signal/${id}`)); // mensajes de una sesión anterior
+        await onDisconnect(ref(db, `${base}/peers/${id}`)).remove();
+        await onDisconnect(ref(db, `${base}/signal/${id}`)).remove();
+        await set(ref(db, `${base}/peers/${id}`), sid);
+      },
+      leave: (id) => Promise.all([remove(ref(db, `${base}/peers/${id}`)), remove(ref(db, `${base}/signal/${id}`))]),
+      send: (to, msg) => push(ref(db, `${base}/signal/${to}`), msg),
+      onPeers: (cb) => onValue(ref(db, `${base}/peers`), (snap) => cb(snap.val() || {})),
+      // Cada mensaje se borra apenas se lee: el buzón no crece.
+      listen: (id, cb) => onChildAdded(ref(db, `${base}/signal/${id}`), (snap) => {
+        cb(snap.val());
+        remove(snap.ref).catch(() => {});
+      }),
     },
     subscribe({ onPlayer, onPlayerGone, onBall, onMatch, onPickups }) {
       const players = ref(db, `${base}/players`);
