@@ -1,6 +1,6 @@
 import React from 'react';
 
-export const APP_VERSION = 'v0.10.1';
+export const APP_VERSION = 'v0.10.2';
 
 export default function Credits() {
   return (

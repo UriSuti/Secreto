@@ -359,7 +359,12 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           net.remotes.set(id, remote);
         }
         if (direct) switchToDirect(remote);
-        if (receiveSnapshot(remote, snap, serverNow())) net.stats.received += 1;
+        // Con el canal directo abierto, lo que llega por Firebase es el respaldo de una vez por
+        // segundo. Si el jugador está quieto, esa copia a veces es más nueva que el último latido
+        // directo y entra; si además contara su demora (~400 ms), al arrancar se lo dibujaba
+        // varios segundos atrasado.
+        const backup = !direct && Boolean(mesh?.isOpen(id));
+        if (receiveSnapshot(remote, snap, serverNow(), !backup)) net.stats.received += 1;
       },
       onPlayerGone(id) {
         net.remotes.delete(id);
@@ -377,7 +382,7 @@ export default function FutbolGame({ room, code, me, onGoal, onTimeEnd, onBackTo
           net.ballJump = true;
         }
         if (direct) switchToDirect(net.ballRemote);
-        receiveSnapshot(net.ballRemote, snap, serverNow());
+        receiveSnapshot(net.ballRemote, snap, serverNow(), direct || !mesh?.isOpen(snap.o));
       },
       onMatch(match) {
         if (!match || match.m !== matchNumber) return;

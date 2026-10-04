@@ -137,5 +137,12 @@
 - Como Ctrl+W cierra la pestaña (y el navegador no deja evitarlo), durante un partido de coches el navegador pregunta antes de cerrarla. Control ya no dispara otros atajos del navegador (Ctrl+D, Ctrl+S…).
 - Arreglado: al empezar el partido, a veces se veía a los demás con casi medio segundo de atraso durante varios segundos, hasta que se movían un rato. Quedaban medidas las demoras de Firebase de antes de abrirse la conexión directa.
 
-LATEST 0.10.15 = Arreglo bug de goles
+0.10.15 = Arreglo bug de goles
 - Ya no se suman goles adicionales por error
+
+--------------------------------------------------------------------------------------------------------------------
+
+LATEST 0.10.2 = Fútbol online: a veces se veía al otro jugador con 300 ms de atraso aunque hubiera conexión directa
+- Después de estar quieto unos segundos, al arrancar se lo dibujaba con 300-400 ms de atraso, que tardaba varios segundos en bajar. La copia de respaldo que va por Firebase una vez por segundo a veces llegaba más nueva que el último aviso por conexión directa, y su demora (la de Firebase) contaba para decidir cuánto atrasar el dibujo. Ahora esa copia sigue sirviendo de respaldo pero su demora no cuenta.
+- Si la hora que estima Firebase para una pantalla estaba atrás de la de la otra (pasa seguido, puede errar cientos de ms), se veía al otro siempre ~300 ms tarde. El retraso tenía un mínimo fijo que convertía esa diferencia de relojes en atraso de verdad. Ahora los límites son relativos a lo medido.
+- Medido con el reloj de la máquina en las dos pantallas: el otro jugador se ve con 33-36 ms de atraso en todos los casos (antes, hasta 360 ms).

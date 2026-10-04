@@ -11,11 +11,11 @@ export const P2P_SEND_INTERVAL_MS = 15; // por conexión directa: una foto por c
 // Si todos reciben por conexión directa, Firebase queda como respaldo y recibe una foto por segundo.
 export const FIREBASE_BACKUP_MS = 1000;
 export const HEARTBEAT_MS = 500;      // quieto, igual avisa que sigue ahí
-export const MIN_DELAY_MS = 35;       // retraso mínimo con que se dibuja a los remotos
+export const MIN_DELAY_MS = 35;       // retraso con que se dibuja a un remoto antes de tener demoras medidas
 // Paso fijo de la física: todas las pantallas simulan igual, tengan 60 o 144 cuadros por segundo.
 export const PHYSICS_STEP_MS = 1000 / 120;
 const MAX_STEPS_PER_FRAME = 8;
-export const MAX_DELAY_MS = 1000;     // ...y máximo, aunque la conexión esté muy mal
+export const MAX_DELAY_MS = 1000;     // como mucho, esto más que la demora típica, aunque la conexión esté muy mal
 // Si faltan fotos (Firebase a veces no entrega nada por medio segundo y después manda todo junto),
 // el remoto se sigue simulando con la física y sus teclas hasta este límite.
 export const EXTRAP_MAX_MS = 700;
@@ -136,7 +136,10 @@ export function createRemote() {
   return { snaps: [], lags: [], delay: null };
 }
 
-export function receiveSnapshot(remote, snap, serverNow) {
+// `countLag: false` para una copia de respaldo que llegó por Firebase cuando con ese jugador hay
+// conexión directa: la foto puede entrar al búfer, pero su demora no es la del camino que se está
+// usando y no tiene que decidir cuánto atrasar el dibujo.
+export function receiveSnapshot(remote, snap, serverNow, countLag = true) {
   const snaps = remote.snaps;
   let last = snaps[snaps.length - 1];
   // Otro saque u otro partido: vuelve a su lugar de golpe, no se desliza por la cancha.
@@ -157,6 +160,7 @@ export function receiveSnapshot(remote, snap, serverNow) {
 
   // La ventana es por tiempo y no por cantidad: con el jugador quieto llega una foto cada medio
   // segundo, y un pico viejo no tiene que seguir pesando medio minuto después.
+  if (!countLag) return true;
   // `gap` es cada cuánto manda fotos: por conexión directa, mucho más seguido que por Firebase.
   const gap = last ? snap.t - last.t : SEND_INTERVAL_MS;
   remote.lags.push({ lag: serverNow - snap.t, at: serverNow, gap });
@@ -185,7 +189,13 @@ export function targetDelay(remote) {
   const p95 = lags[Math.min(lags.length - 1, Math.floor(lags.length * 0.95))];
   const gaps = remote.lags.map((l) => clamp(l.gap ?? SEND_INTERVAL_MS, 1, SEND_INTERVAL_MS)).sort((a, b) => a - b);
   const gap = gaps[Math.floor(gaps.length / 2)];
-  return clamp(p95 + gap + 15, MIN_DELAY_MS, MAX_DELAY_MS);
+  // Las demoras se miden con la hora de servidor que estima cada pantalla, y esas estimaciones
+  // pueden diferir cientos de ms: todo el valor queda corrido por esa diferencia, que se compensa
+  // sola al restar. Por eso los topes van relativos a lo medido y nunca absolutos: con un piso fijo,
+  // si el reloj propio estaba atrás, el piso convertía la diferencia de relojes en atraso de verdad
+  // (se dibujaba al otro ~300 ms tarde con una conexión directa de 15 ms).
+  const median = lags[Math.floor(lags.length / 2)];
+  return Math.min(p95 + gap + 15, median + MAX_DELAY_MS);
 }
 
 // Cuántos pasos fijos de física tocan en este cuadro. Lo que sobra queda para el cuadro siguiente,

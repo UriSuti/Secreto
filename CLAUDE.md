@@ -293,8 +293,18 @@ jugador en la versión anterior, donde el host corregía a todos hacia su propia
   eso el retraso usa el percentil 95 en una ventana *de tiempo* (con el máximo, un solo pico dejaba
   a los remotos un segundo atrasados por medio minuto) y por eso existe la extrapolación con física.
 - **Las horas de servidor de dos pantallas no coinciden**: la estimación de Firebase puede errar
-  tanto como la latencia, así que las demoras medidas pueden dar negativas. No importa, porque el
-  retraso se calcula relativo; no intentes corregirlo.
+  tanto como la latencia, así que las demoras medidas (y el retraso de `net.remotes`) pueden dar
+  negativas o muy grandes. No importa, porque se compensa al restar; no intentes corregirlo. **Pero
+  cualquier tope tiene que ser relativo a lo medido**: un mínimo fijo de 35 ms convertía esa
+  diferencia de relojes en atraso de verdad (se veía al otro ~300 ms tarde por conexión directa).
+  Por lo mismo, el número de `delay` no es el atraso que se ve.
+- **La copia de respaldo por Firebase no tiene que contar su demora** si con ese jugador hay canal
+  directo (`receiveSnapshot(..., countLag)`). Con el jugador quieto, a veces llega más nueva que el
+  último latido directo, entra al búfer, y si contara su demora (~400 ms) se lo dibujaba así de
+  atrasado al arrancar.
+- **Para medir el atraso real** no uses `delay`: las dos pantallas de una prueba corren en la misma
+  máquina, así que se puede cruzar por `Date.now()` cuándo pasó el jugador por un punto y cuándo el
+  otro lo dibujó ahí. Para provocar la diferencia de relojes, sumale ±300 a `window.__futbol.net.offset`.
 - **Con 4 escrituras en vuelo** (el primer intento) la latencia normal frenaba el envío a ~10 fotos
   por segundo y las fotos esperaban en cola antes de salir.
 - **Al abrirse el canal directo hay que olvidar las demoras medidas por Firebase** (`switchToDirect`).

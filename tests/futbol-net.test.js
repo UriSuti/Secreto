@@ -147,6 +147,33 @@ test('red: el retraso sube rápido y baja despacio, sin saltos', () => {
 
 // ─── pelota ─────────────────────────────────────────────────────────────────
 
+test('red: si los relojes de las dos pantallas difieren, eso no se convierte en atraso', () => {
+  // Conexión directa de 15 ms, pero mi hora de servidor estimada va 270 ms atrás de la del otro:
+  // las demoras medidas dan negativas.
+  for (const diff of [-270, 0, 270]) {
+    const remote = createRemote();
+    for (let i = 0; i < 60; i++) receiveSnapshot(remote, snap(i * 16, i), i * 16 + 15 + diff);
+    const real = targetDelay(remote) - diff; // lo que de verdad se ve atrasado
+    assert.ok(real > 15 && real < 80, `con ${diff} ms de diferencia se lo ve ${real} ms atrás`);
+  }
+});
+
+test('red: la copia de respaldo por Firebase entra al búfer pero su demora no atrasa el dibujo', () => {
+  // Jugador quieto por conexión directa: un latido cada 500 ms, con 20 ms de demora.
+  const remote = createRemote();
+  for (let i = 0; i < 6; i++) receiveSnapshot(remote, { ...snap(i * 500, 0), vx: 0 }, i * 500 + 20);
+  const directo = targetDelay(remote);
+  // Llega la copia de Firebase de una foto más nueva que el último latido, 400 ms tarde.
+  assert.equal(receiveSnapshot(remote, { ...snap(2600, 0), vx: 0 }, 3000, false), true, 'entra al búfer');
+  assert.equal(remote.snaps.at(-1).t, 2600);
+  assert.equal(targetDelay(remote), directo, 'el retraso sigue siendo el del canal directo');
+  // Si la misma copia contara (sin canal directo), sí lo subiría.
+  const sinCanal = createRemote();
+  for (let i = 0; i < 6; i++) receiveSnapshot(sinCanal, { ...snap(i * 500, 0), vx: 0 }, i * 500 + 20);
+  receiveSnapshot(sinCanal, { ...snap(2600, 0), vx: 0 }, 3000);
+  assert.ok(targetDelay(sinCanal) > directo + 300);
+});
+
 test('red: gana el reclamo de la pelota con más cambios de dueño; si empatan, las dos pantallas coinciden', () => {
   assert.ok(claimBeats({ s: 3, o: 'a' }, { s: 2, o: 'z' }));
   assert.ok(!claimBeats({ s: 2, o: 'z' }, { s: 3, o: 'a' }));
