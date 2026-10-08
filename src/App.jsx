@@ -18,6 +18,7 @@ import { LobbyLayout, LobbyTeamCard, TeamRoleSlot, LobbyActionSection } from './
 import CafeOTeApp from './cafeote/CafeOTeApp.jsx';
 import FutbolApp from './futbol/FutbolApp.jsx';
 import MainMenu from './menu/MainMenu.jsx';
+import GarticApp from './gartic/GarticApp.jsx';
 import Credits from './menu/Credits.jsx';
 
 function gameFromUrl() {
@@ -64,6 +65,7 @@ export default function App() {
     const juego = gameFromUrl();
     if (juego === 'cafe-o-te') return 'cafe-o-te';
     if (juego === 'futbol') return 'futbol';
+    if (juego === 'gartic') return 'gartic';
     return codeFromUrl() || loadSession(codeFromUrl()) ? 'codigo-secreto' : 'menu';
   });
   const [name, setName] = useState(loadName);
@@ -263,6 +265,10 @@ export default function App() {
     // ---------- CAFÉ O TÉ ----------
     if (activeGame === 'cafe-o-te') {
       return <CafeOTeApp onBackToMenu={() => setActiveGame('menu')} />;
+    }
+
+    if (activeGame === 'gartic') {
+      return <GarticApp onBackToMenu={() => setActiveGame('menu')} />;
     }
 
     // ---------- FÚTBOL ----------
@@ -825,7 +831,7 @@ export default function App() {
 return (
   <>
     {renderView()}
-    <Credits />
+    <Credits inline={activeGame === 'gartic'} />
   </>
 );
 }

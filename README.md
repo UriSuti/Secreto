@@ -76,3 +76,9 @@ son las reglas de [`database.rules.json`](database.rules.json).
 ## Autores
 
 Hecho por **Nicolas Cukier** y **Uriel Suti**.
+
+## Trazo Loco
+
+Nuevo juego de dibujo y teléfono descompuesto en el menú: Normal, Imitación, Historia y Sandwich. Salas para 3 a 20 jugadores con editor táctil, cadenas privadas, revelación y álbumes.
+
+La configuración de Authentication, la estructura de datos, las pruebas y los pasos de publicación están en [docs/GARTIC.md](docs/GARTIC.md).

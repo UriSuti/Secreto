@@ -2,6 +2,7 @@ import React from 'react';
 import { COLORS, panelStyle } from '../theme.js';
 
 const GAMES = [
+  { id: 'gartic', title: 'Trazo Loco', icon: '🎨', description: 'Teléfono descompuesto visual: escribí, dibujá y descubrí cómo cambió la idea. De 3 a 20 jugadores.', badge: 'Nuevo', available: true },
   {
     id: 'codigo-secreto',
     title: 'Código Secreto',

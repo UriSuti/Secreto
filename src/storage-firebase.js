@@ -1,16 +1,9 @@
-import { initializeApp } from 'firebase/app';
+import { database } from './firebase.js';
 import {
-  getDatabase, onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, push, ref, remove, runTransaction, set,
+  onChildAdded, onChildChanged, onChildRemoved, onDisconnect, onValue, push, ref, remove, runTransaction, set,
 } from 'firebase/database';
-import { firebaseConfig } from './firebaseConfig.js';
 import { ROOM_TTL_MS, makeCode, parseRoom, serializeRoom } from './codigo-secreto/game.js';
 
-let db = null;
-
-function database() {
-  if (!db) db = getDatabase(initializeApp(firebaseConfig));
-  return db;
-}
 
 // Cada sala se guarda como un string JSON: así Firebase no convierte arrays vacíos ni nulls en campos faltantes.
 const roomRef = (code) => ref(database(), `rooms/${code}`);
