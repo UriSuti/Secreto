@@ -39,7 +39,7 @@ async function drawing(){
   await p.getByRole('button',{name:'¡Listo!',exact:true}).click();
  }));
 }
-async function reveal(){await Promise.all(pages.map((p)=>p.getByRole('heading',{name:'¡Mirá cómo terminó!'}).waitFor()));for(const p of pages)assert.equal(await p.locator('.gp-error').count(),0);}
+async function reveal(){await Promise.all(pages.map((p)=>p.getByRole('heading',{name:'¡Mirá cómo terminó!'}).waitFor()));for(const p of pages)assert.deepEqual(await p.locator('.gp-error').allTextContents(),[]);}
 async function rematch(mode){
  await pages[0].getByRole('button',{name:'Otra partida · Volver al lobby'}).click();
  await pages[0].getByRole('button',{name:new RegExp(mode)}).first().click();

@@ -62,6 +62,6 @@ npm run build
 npx firebase-tools deploy --only database,hosting --project secreto-aed7e
 ```
 
-La publicación quedó pendiente en esta sesión porque Firebase CLI no tenía una sesión autenticada.
+El código y las reglas se publicaron el 08/10/2026 en https://secreto-aed7e.web.app/?juego=gartic. Las reglas vigentes de los otros juegos fueron comparadas y se conservaron. Queda pendiente inicializar Authentication desde Firebase Console y habilitar Anónimo: la API pública de inicialización exige facturación, que no se habilitó. El usuario pidió continuar ese paso en otra sesión; el estado completo está en ../CONTINUAR_GARTIC.md.
 
 Referencias: [reglas de acceso](https://firebase.google.com/docs/database/security/core-syntax), [presencia y hora del servidor](https://firebase.google.com/docs/database/web/offline-capabilities), [autenticación anónima](https://firebase.google.com/docs/auth/web/anonymous-auth).

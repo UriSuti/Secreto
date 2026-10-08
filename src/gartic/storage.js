@@ -18,12 +18,35 @@ const roomPath = (code) => 'garticRooms/' + code;
 export const watch = (path, callback, onError) => onValue(at(path), (s) => callback(s.val()), onError);
 export const watchRoom = (code, callback, onError) => watch(roomPath(code), callback, onError);
 export const watchPresence = (code, callback) => watch('garticPresence/' + code, callback);
-export const watchReady = (code, state, callback, onError) => watch('garticReady/' + code + '/' + state.match + '/' + state.round, callback, onError);
+export function watchReady(code, state, callback, onError) {
+  let active = true, errorTimer = null;
+  const off = watch('garticReady/' + code + '/' + state.match + '/' + state.round, callback, (error) => {
+    // Una revancha revoca esta lectura; la vista cancela la escucha al recibir el estado nuevo.
+    errorTimer = setTimeout(() => { if (active) onError?.(error); }, 300);
+  });
+  return () => { active = false; clearTimeout(errorTimer); off(); };
+}
 export const watchOwnStep = (code, state, uid, callback, onError) => watch('garticSteps/' + code + '/' + state.match + '/' + state.round + '/' + uid, callback, onError);
 export function watchPrevious(code, state, author, callback, onError) {
   return watch('garticSteps/' + code + '/' + state.match + '/' + (state.round - 1) + '/' + author, callback, onError);
 }
-export const watchResults = (code, state, callback, onError) => watch('garticSteps/' + code + '/' + state.match, callback, onError);
+export function watchResults(code, state, callback, onError) {
+  let active = true, off = () => {}, retry = null, attempts = 0;
+  function listen() {
+    if (!active) return;
+    off = watch('garticSteps/' + code + '/' + state.match, (value) => {
+      if (active) callback(value);
+    }, (error) => {
+      // La autorización puede actualizarse antes que la suscripción al estado público.
+      // Una revancha desmonta esta escucha; una revelación recién confirmada puede reintentar.
+      if (!active) return;
+      if (attempts++ < 3) retry = setTimeout(listen, 250);
+      else onError?.(error);
+    });
+  }
+  listen();
+  return () => { active = false; clearTimeout(retry); off(); };
+}
 
 export async function createRoom(uid, name, avatar) {
   for (let attempt = 0; attempt < 8; attempt++) {

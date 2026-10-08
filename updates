@@ -157,4 +157,4 @@ LATEST 0.11.0 = Trazo Loco: teléfono descompuesto visual multijugador integrado
 - Reloj del servidor, guardado automático, borradores recuperables y transferencia del anfitrión.
 - Revelación progresiva, reproducción, álbumes y revancha.
 - Pruebas de lógica, seguridad en emulador y partidas completas en navegadores separados.
-- Publicación pendiente de sesión Firebase y habilitación del proveedor Anónimo; revisar las reglas vigentes antes de desplegar.
+- Hosting y nuevas reglas publicados el 08/10/2026; se conservan las reglas vigentes de los demás juegos. Pendiente inicializar Authentication y habilitar Anónimo desde Firebase Console. El usuario pidió retomar ese paso en otra sesión; continuidad guardada en CONTINUAR_GARTIC.md.

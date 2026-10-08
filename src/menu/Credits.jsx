@@ -25,7 +25,7 @@ export default function Credits({ inline = false }) {
           un expediente de
         </div>
         <div style={{ fontSize: 12, color: 'rgba(239, 230, 204, 0.95)', fontWeight: 600 }}>
-          Nicolas Cukier · Alan Vitas
+          Nicolas Cukier · Uriel Suti · Alan Vitas
         </div>
       </div>
 
